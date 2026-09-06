@@ -1,0 +1,28 @@
+{
+  "name": "@saga/corpus",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test .",
+    "record": "bun src/record.ts",
+    "seed": "bun src/seed.ts"
+  },
+  "dependencies": {
+    "@saga/adapters": "*",
+    "@saga/analytics": "*",
+    "@saga/api": "*",
+    "@saga/capture": "*",
+    "@saga/collector": "*",
+    "@saga/contracts": "*",
+    "@saga/store": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.9.0"
+  }
+}

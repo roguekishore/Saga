@@ -1,0 +1,21 @@
+{
+  "name": "@saga/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SAGA desktop shell — Electron window over the Bun collector sidecar",
+  "main": "src/main.cjs",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test .",
+    "start": "electron .",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:sidecar:win": "bun build --compile --target=bun-windows-x64 --outfile build/saga-collector.exe ../collector/src/main.ts",
+    "package:win": "npm run build:web && npm run build:sidecar:win && electron-builder --win --config electron-builder.json"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.9.0"
+  }
+}

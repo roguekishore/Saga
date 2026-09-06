@@ -1,0 +1,29 @@
+{
+  "name": "saga",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first observability for AI gateway traffic — a thin reverse-proxy wrapper, never a fork.",
+  "type": "module",
+  "packageManager": "npm@10.8.2",
+  "engines": {
+    "node": ">=20.19.0",
+    "bun": ">=1.3.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*",
+    "tests"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "bun test packages apps tools tests",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "dev:collector": "bun apps/collector/src/main.ts",
+    "dev:web": "npm run dev --workspace=apps/web"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.0"
+  }
+}

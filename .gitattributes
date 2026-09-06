@@ -1,0 +1,5 @@
+# One line-ending truth across the Linux build machine and the Windows target.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.exe binary

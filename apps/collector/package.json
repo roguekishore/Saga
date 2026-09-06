@@ -1,0 +1,28 @@
+{
+  "name": "@saga/collector",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/collector.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test .",
+    "start": "bun src/main.ts"
+  },
+  "dependencies": {
+    "@saga/adapters": "*",
+    "@saga/analytics": "*",
+    "@saga/api": "*",
+    "@saga/capture": "*",
+    "@saga/contracts": "*",
+    "@saga/enrich": "*",
+    "@saga/redact": "*",
+    "@saga/store": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.9.0"
+  }
+}

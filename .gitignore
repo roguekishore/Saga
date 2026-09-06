@@ -1,0 +1,34 @@
+# --- databases: never in history (SQLite is plaintext on disk) ---
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- secrets ---
+.env
+.env.*
+credentials.json
+
+# --- runtime data ---
+storage/
+
+# --- recorded real traffic stays local, even after redaction (brief §2.4) ---
+tools/corpus/recorded/
+
+# --- toolchain output ---
+node_modules/
+dist/
+build/
+out/
+release/
+coverage/
+*.tsbuildinfo
+.turbo/
+.vite/
+
+# --- editors / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

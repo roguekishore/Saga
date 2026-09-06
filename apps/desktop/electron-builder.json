@@ -1,0 +1,24 @@
+{
+  "appId": "dev.saga.desktop",
+  "productName": "SAGA",
+  "directories": { "output": "release" },
+  "files": ["src/**/*", "package.json"],
+  "extraResources": [
+    { "from": "../web/dist", "to": "ui" },
+    { "from": "build/saga-collector.exe", "to": "saga-collector.exe" }
+  ],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "artifactName": "SAGA-Setup-${version}.${ext}",
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "shortcutName": "SAGA"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "category": "Development"
+  }
+}

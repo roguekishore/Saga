@@ -1,0 +1,20 @@
+{
+  "name": "@saga/tests",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ."
+  },
+  "dependencies": {
+    "@saga/collector": "*",
+    "@saga/contracts": "*",
+    "@saga/corpus": "*",
+    "@saga/store": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.9.0"
+  }
+}
