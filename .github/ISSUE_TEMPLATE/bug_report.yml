@@ -1,0 +1,71 @@
+name: Bug Report
+description: Something is broken or behaving unexpectedly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. The more detail you include, the faster we can investigate.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug — what you did, what you expected, and what actually happened.
+      placeholder: "I did X, expected Y, but got Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the issue. Include config snippets or curl commands if relevant.
+      placeholder: |
+        1. Start SAGA with `bun run start`
+        2. Send a request to `POST /v1/messages`
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: input
+    id: saga-version
+    attributes:
+      label: SAGA version
+      description: Run `bun run --cwd apps/collector start --version` or check `package.json`.
+      placeholder: "0.1.0"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: Paste any error messages, stack traces, or relevant log lines here.
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else that might be relevant — upstream gateway in use, proxy config, etc.

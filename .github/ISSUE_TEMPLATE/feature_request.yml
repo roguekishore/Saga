@@ -1,0 +1,63 @@
+name: Feature Request
+description: Propose a new feature or improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before writing code, open a feature request so we can discuss scope and fit. For significant changes, wait for a maintainer to acknowledge before starting a PR.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation or pain point you are running into. What are you trying to do that is currently difficult or impossible?
+      placeholder: "When I do X, I have to manually Y, which is tedious because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or change you would like to see. Be as specific as you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you tried any workarounds, or considered other approaches? Why didn't they work?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of SAGA does this touch?
+      options:
+        - Capture / proxy
+        - Adapters (provider normalization)
+        - Storage / database
+        - Redaction
+        - Dashboard / UI
+        - API
+        - CLI / developer experience
+        - CI / tooling
+        - Documentation
+        - Other / unsure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to submit a PR for this feature
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links, screenshots, related issues, or anything else that helps illustrate the request.
