@@ -1,0 +1,58 @@
+/*
+ * SAGA design tokens. Dark-first control-room aesthetic; light theme flips
+ * the same semantic slots. Provenance colors are part of the product's
+ * honesty contract, not decoration:
+ *   upstream-reported → green   (the provider said so)
+ *   gateway-computed  → amber   (someone in the middle computed it)
+ *   saga-estimated    → orange  (our own heuristic)
+ *   inferred          → violet, dashed (structure SAGA guessed)
+ */
+:root {
+  --saga-canvas: #f4f5f7;
+  --saga-surface: #ffffff;
+  --saga-raised: #eef0f3;
+  --saga-overlay: #ffffff;
+  --saga-line: #dcdfe5;
+  --saga-line-strong: #c3c9d2;
+  --saga-ink: #16191d;
+  --saga-ink-dim: #5a6572;
+  --saga-ink-faint: #8b95a2;
+  --saga-accent: #b97f10;
+  --saga-accent-ink: #ffffff;
+  --saga-accent-soft: #f7ecd4;
+  --saga-ok: #178745;
+  --saga-err: #cf3f4f;
+  --saga-warn: #b97f10;
+  --saga-info: #2569c3;
+  --saga-prov-upstream: #178745;
+  --saga-prov-gateway: #b97f10;
+  --saga-prov-saga: #c2571d;
+  --saga-inferred: #7350c7;
+  --saga-thinking: #7350c7;
+  --saga-sel: #ececff;
+}
+
+.dark {
+  --saga-canvas: #0b0d10;
+  --saga-surface: #11151a;
+  --saga-raised: #171c23;
+  --saga-overlay: #1a2028;
+  --saga-line: #232a33;
+  --saga-line-strong: #2f3844;
+  --saga-ink: #e6ebf2;
+  --saga-ink-dim: #96a1b0;
+  --saga-ink-faint: #5f6a78;
+  --saga-accent: #f0b43e;
+  --saga-accent-ink: #16191d;
+  --saga-accent-soft: #2a2415;
+  --saga-ok: #46c47c;
+  --saga-err: #f2707e;
+  --saga-warn: #f0b43e;
+  --saga-info: #62a5f2;
+  --saga-prov-upstream: #46c47c;
+  --saga-prov-gateway: #f0b43e;
+  --saga-prov-saga: #f28e52;
+  --saga-inferred: #a78bfa;
+  --saga-thinking: #a78bfa;
+  --saga-sel: #1d2433;
+}
