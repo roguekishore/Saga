@@ -1,0 +1,67 @@
+[
+  {
+    "name": "agent-parent-slow",
+    "description": "Hand-authored: the orchestrator's request streams slowly (frame delays) so a subagent request can overlap it in flight — the timing signal agent correlation infers parenthood from.",
+    "request": {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": { "content-type": "application/json", "user-agent": "fixture-client/1.0" },
+      "body": {
+        "model": "claude-opus-4",
+        "max_tokens": 1024,
+        "stream": true,
+        "system": "You are the main orchestrator for the demo workspace. Delegate work to subagents when useful.\nPrimary working directory: /home/dev/multiagent-demo\n",
+        "messages": [
+          { "role": "user", "content": "Audit this repository, use a subagent for the review." }
+        ]
+      }
+    },
+    "response": {
+      "status": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "chunkBytes": 48,
+      "frameDelayMs": 40,
+      "sseFrames": [
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx_parent\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4\",\"content\":[],\"usage\":{\"input_tokens\":640,\"output_tokens\":2}}}",
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Spawning the reviewer subagent \"}}",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"and waiting for its findings…\"}}",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" Consolidating results now.\"}}",
+        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}",
+        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":31}}",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}"
+      ]
+    }
+  },
+  {
+    "name": "agent-sub-reviewer",
+    "description": "Hand-authored: the subagent's request — different system prompt, fired while the parent streams. Carries a tool_use so the devtools pages have in-stream tool timing.",
+    "request": {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": { "content-type": "application/json", "user-agent": "fixture-client/1.0" },
+      "body": {
+        "model": "claude-sonnet-4",
+        "max_tokens": 512,
+        "stream": true,
+        "system": "You are a code reviewer subagent. Report findings tersely.\nPrimary working directory: /home/dev/multiagent-demo\n",
+        "messages": [{ "role": "user", "content": "Review the storage layer for retention bugs." }]
+      }
+    },
+    "response": {
+      "status": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "chunkBytes": 32,
+      "frameDelayMs": 8,
+      "sseFrames": [
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx_sub\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4\",\"content\":[],\"usage\":{\"input_tokens\":210,\"output_tokens\":1}}}",
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_fx_grep\",\"name\":\"grep_search\",\"input\":{}}}",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"pattern\\\": \\\"VACU\"}}",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"UM\\\"}\"}}",
+        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}",
+        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":19}}",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}"
+      ]
+    }
+  }
+]

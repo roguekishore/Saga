@@ -1,0 +1,108 @@
+[
+  {
+    "name": "session-turn-1",
+    "description": "Turn 1 of a 3-turn session: shared system prompt, first user turn.",
+    "request": {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": { "content-type": "application/json", "user-agent": "fixture-client/1.0" },
+      "body": {
+        "model": "claude-sonnet-4",
+        "max_tokens": 512,
+        "stream": true,
+        "system": "You are the demo session assistant for the fixture corpus. Answer briefly.",
+        "messages": [{ "role": "user", "content": "What does the storage dashboard show?" }]
+      }
+    },
+    "response": {
+      "status": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "chunkBytes": 32,
+      "sseFrames": [
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx_t1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4\",\"content\":[],\"usage\":{\"input_tokens\":96,\"output_tokens\":1}}}",
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Database size, compression ratio, dedup savings, and cleanup schedule.\"}}",
+        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}",
+        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":21}}",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}"
+      ]
+    }
+  },
+  {
+    "name": "session-turn-2",
+    "description": "Turn 2: same system prompt (dedup target), history grows by two messages.",
+    "request": {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": { "content-type": "application/json", "user-agent": "fixture-client/1.0" },
+      "body": {
+        "model": "claude-sonnet-4",
+        "max_tokens": 512,
+        "stream": true,
+        "system": "You are the demo session assistant for the fixture corpus. Answer briefly.",
+        "messages": [
+          { "role": "user", "content": "What does the storage dashboard show?" },
+          {
+            "role": "assistant",
+            "content": "Database size, compression ratio, dedup savings, and cleanup schedule."
+          },
+          { "role": "user", "content": "And where do deleted prompt bodies actually go?" }
+        ]
+      }
+    },
+    "response": {
+      "status": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "chunkBytes": 32,
+      "sseFrames": [
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx_t2\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4\",\"content\":[],\"usage\":{\"input_tokens\":141,\"output_tokens\":1}}}",
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Into SQLite freelist pages — they linger until VACUUM runs, which is why retention has a vacuum policy.\"}}",
+        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}",
+        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":29}}",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}"
+      ]
+    }
+  },
+  {
+    "name": "session-turn-3",
+    "description": "Turn 3: history includes turns 1-2; every prior message should dedup.",
+    "request": {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": { "content-type": "application/json", "user-agent": "fixture-client/1.0" },
+      "body": {
+        "model": "claude-sonnet-4",
+        "max_tokens": 512,
+        "stream": true,
+        "system": "You are the demo session assistant for the fixture corpus. Answer briefly.",
+        "messages": [
+          { "role": "user", "content": "What does the storage dashboard show?" },
+          {
+            "role": "assistant",
+            "content": "Database size, compression ratio, dedup savings, and cleanup schedule."
+          },
+          { "role": "user", "content": "And where do deleted prompt bodies actually go?" },
+          {
+            "role": "assistant",
+            "content": "Into SQLite freelist pages — they linger until VACUUM runs, which is why retention has a vacuum policy."
+          },
+          { "role": "user", "content": "So retention without vacuum deletes nothing?" }
+        ]
+      }
+    },
+    "response": {
+      "status": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "chunkBytes": 32,
+      "sseFrames": [
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx_t3\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4\",\"content\":[],\"usage\":{\"input_tokens\":198,\"output_tokens\":1}}}",
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Correct — the bytes stay on disk in freed pages until VACUUM reclaims them.\"}}",
+        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}",
+        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":19}}",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}"
+      ]
+    }
+  }
+]

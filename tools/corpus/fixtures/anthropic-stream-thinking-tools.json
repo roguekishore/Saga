@@ -1,0 +1,51 @@
+{
+  "name": "anthropic-stream-thinking-tools",
+  "description": "Hand-authored: streaming /v1/messages with thinking+signature, text, and a tool_use whose input JSON splits across frames. Chunked hostilely at 13 bytes.",
+  "request": {
+    "method": "POST",
+    "path": "/v1/messages",
+    "headers": { "content-type": "application/json", "user-agent": "fixture-client/1.0" },
+    "body": {
+      "model": "claude-sonnet-4",
+      "max_tokens": 1024,
+      "stream": true,
+      "system": "You are a precise coding assistant.\nPrimary working directory: /home/dev/sample-project\n",
+      "thinking": { "type": "enabled", "budget_tokens": 2048 },
+      "tools": [
+        {
+          "name": "run_shell",
+          "description": "Run a shell command",
+          "input_schema": {
+            "type": "object",
+            "properties": { "command": { "type": "string" } },
+            "required": ["command"]
+          }
+        }
+      ],
+      "messages": [{ "role": "user", "content": "List the files in the project root." }]
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "text/event-stream; charset=utf-8",
+    "chunkBytes": 13,
+    "frameDelayMs": 0,
+    "sseFrames": [
+      "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_fx_001\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4\",\"content\":[],\"usage\":{\"input_tokens\":412,\"output_tokens\":2}}}",
+      "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}",
+      "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"The user wants a directory listing. \"}}",
+      "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"run_shell with ls -la is the direct answer.\"}}",
+      "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"RmFrZVNpZ25hdHVyZUZvckZpeHR1cmU=\"}}",
+      "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}",
+      "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+      "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"I'll list the project root.\"}}",
+      "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}",
+      "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_fx_01\",\"name\":\"run_shell\",\"input\":{}}}",
+      "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"comm\"}}",
+      "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"and\\\": \\\"ls -la\\\"}\"}}",
+      "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":2}",
+      "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":58}}",
+      "event: message_stop\ndata: {\"type\":\"message_stop\"}"
+    ]
+  }
+}
