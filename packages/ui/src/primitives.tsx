@@ -261,10 +261,12 @@ export function Segmented<T extends string>({
   'aria-label'?: string;
 }) {
   return (
-    <div
-      role="group"
+    <fieldset
       aria-label={ariaLabel}
-      className={cn('inline-flex items-center gap-0.5 rounded-md bg-raised p-0.5', className)}
+      className={cn(
+        'm-0 inline-flex items-center gap-0.5 rounded-md border-0 bg-raised p-0.5',
+        className,
+      )}
     >
       {options.map((o) => (
         <button
@@ -275,15 +277,13 @@ export function Segmented<T extends string>({
           className={cn(
             'cursor-pointer rounded-[5px] px-2 py-0.5 text-[11.5px] font-medium',
             'transition-[background-color,color,box-shadow] duration-(--dur-1)',
-            o.value === value
-              ? 'bg-surface text-ink shadow-card'
-              : 'text-ink-dim hover:text-ink',
+            o.value === value ? 'bg-surface text-ink shadow-card' : 'text-ink-dim hover:text-ink',
           )}
         >
           {o.label}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }
 

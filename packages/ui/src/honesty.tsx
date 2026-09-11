@@ -27,13 +27,7 @@ import {
 
 export type ProvenanceTone = 'upstream' | 'gateway' | 'saga' | 'mixed' | 'none' | 'inferred';
 
-export function ProvenanceMark({
-  tone,
-  className,
-}: {
-  tone: ProvenanceTone;
-  className?: string;
-}) {
+export function ProvenanceMark({ tone, className }: { tone: ProvenanceTone; className?: string }) {
   const gid = useId();
   return (
     <svg
@@ -43,14 +37,7 @@ export function ProvenanceMark({
     >
       {tone === 'upstream' ? <circle cx="5" cy="5" r="3.4" className="fill-prov-upstream" /> : null}
       {tone === 'gateway' ? (
-        <circle
-          cx="5"
-          cy="5"
-          r="3"
-          fill="none"
-          strokeWidth="1.8"
-          className="stroke-prov-gateway"
-        />
+        <circle cx="5" cy="5" r="3" fill="none" strokeWidth="1.8" className="stroke-prov-gateway" />
       ) : null}
       {tone === 'saga' ? (
         <path d="M5 1.1 L8.9 5 L5 8.9 L1.1 5 Z" className="fill-prov-saga" />
