@@ -65,9 +65,15 @@ rail, focus rings, selection, the live pulse. It is not a data color.
 | Token | Light | Dark | Meaning | Mark |
 |---|---|---|---|---|
 | `--saga-prov-upstream` | `#079393` | `#46d3c7` | provider-reported | solid disc |
+| `--saga-prov-upstream-ink` | `#076662` | `#46d3c7` | upstream rendered as text | — |
 | `--saga-prov-gateway` | `#829417` | `#ccee6e` | middleman-computed | ring (hollow disc) |
 | `--saga-prov-saga` | `#a5317c` | `#ca5b9f` | SAGA heuristic | diamond |
 | `--saga-inferred` | `#573494` | `#bea6fe` | guessed structure | dashed ring / dashed border |
+
+The light teal mark cannot darken to text contrast without collapsing the
+CVD lightness ladder against rose, so text usages (WireTag) take the darker
+`-ink` step while marks keep the ladder hue. Rose and gateway-lime are
+mark-only tones: they never render as body text.
 
 `--saga-thinking` shares the violet family (deeper step) — model-internal
 reasoning and SAGA-internal inference both read as “not part of the visible

@@ -208,7 +208,7 @@ export function WireTag({
         className={cn(
           'inline-flex cursor-default items-center rounded border border-solid',
           'border-prov-upstream/60 px-1 py-px text-[10px] font-medium leading-3.5',
-          'text-prov-upstream',
+          'text-prov-upstream-ink',
           className,
         )}
       >

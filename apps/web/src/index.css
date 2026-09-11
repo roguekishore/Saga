@@ -23,6 +23,7 @@
   --color-warn: var(--saga-warn);
   --color-info: var(--saga-info);
   --color-prov-upstream: var(--saga-prov-upstream);
+  --color-prov-upstream-ink: var(--saga-prov-upstream-ink);
   --color-prov-gateway: var(--saga-prov-gateway);
   --color-prov-saga: var(--saga-prov-saga);
   --color-inferred: var(--saga-inferred);

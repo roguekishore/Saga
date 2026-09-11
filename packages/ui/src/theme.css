@@ -31,6 +31,8 @@
   --saga-info: #1666aa;
 
   --saga-prov-upstream: #079393;
+  /* darker step for upstream rendered as text — the mark keeps the ladder hue */
+  --saga-prov-upstream-ink: #076662;
   --saga-prov-gateway: #829417;
   --saga-prov-saga: #a5317c;
   --saga-inferred: #573494;
@@ -80,6 +82,7 @@
   --saga-info: #418ad1;
 
   --saga-prov-upstream: #46d3c7;
+  --saga-prov-upstream-ink: #46d3c7;
   --saga-prov-gateway: #ccee6e;
   --saga-prov-saga: #ca5b9f;
   --saga-inferred: #bea6fe;

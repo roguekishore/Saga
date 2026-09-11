@@ -35,7 +35,12 @@ export function LogsPage() {
         const page = LogPageSchema.parse(await res.json());
         if (page.items.length > 0) {
           afterRef.current = page.nextAfter ?? afterRef.current;
-          setLines((cur) => [...cur, ...page.items].slice(-4000));
+          // Dedupe on seq: overlapping ticks (remounts, slow responses) must
+          // not double-append the same lines.
+          setLines((cur) => {
+            const seen = new Set(cur.map((l) => l.seq));
+            return [...cur, ...page.items.filter((i) => !seen.has(i.seq))].slice(-4000);
+          });
         }
       } catch {
         // collector down; the shell banner already says so
