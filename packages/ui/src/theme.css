@@ -115,3 +115,23 @@
     --dur-4: 0ms;
   }
 }
+
+/*
+ * Increased contrast: hairlines harden one step and the two quiet ink tiers
+ * each step up. Hue semantics are untouched.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --saga-line: #b6bdc7;
+    --saga-line-strong: #99a2ae;
+    --saga-ink-dim: #2c333d;
+    --saga-ink-faint: #4b5563;
+  }
+
+  .dark {
+    --saga-line: #414b59;
+    --saga-line-strong: #566274;
+    --saga-ink-dim: #d3dae4;
+    --saga-ink-faint: #a6b1c0;
+  }
+}
