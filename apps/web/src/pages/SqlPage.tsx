@@ -1,9 +1,24 @@
 import type { SqlResult } from '@saga/contracts';
 import { SqlResultSchema } from '@saga/contracts';
-import { Badge, Button, Card, cn, EmptyState, fmtMs, Select, Tip } from '@saga/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  cn,
+  dur,
+  EmptyState,
+  ease,
+  fmtMs,
+  Kbd,
+  Select,
+  Skeleton,
+  Tip,
+} from '@saga/ui';
 import { useMutation } from '@tanstack/react-query';
 import { Download, Play, Save, TerminalSquare, Trash2 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
+import { Page } from '../shell/Page';
 
 /**
  * SQL Explorer over the read-only endpoint. The guards live server-side
@@ -98,14 +113,15 @@ export function SqlPage() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-3 p-4">
+    <Page flush className="flex flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="solid" onClick={() => run.mutate(sql)} disabled={run.isPending}>
-          <Play className="size-3.5" /> run{' '}
-          <kbd className="ml-1 rounded bg-black/20 px-1 text-[10px]">⌃⏎</kbd>
+          <Play className="size-3.5" /> run
+          <Kbd className="border-accent-ink/30 bg-transparent text-accent-ink/90">⌃⏎</Kbd>
         </Button>
         <Select
           value=""
+          aria-label="example queries"
           onChange={(e) => {
             const ex = EXAMPLES.find((x) => x.label === e.target.value);
             if (ex) setSql(ex.sql);
@@ -123,6 +139,7 @@ export function SqlPage() {
         {saved.length > 0 ? (
           <Select
             value=""
+            aria-label="saved queries"
             onChange={(e) => {
               const s = saved.find((x) => x.name === e.target.value);
               if (s) setSql(s.sql);
@@ -161,23 +178,43 @@ export function SqlPage() {
         value={sql}
         onChange={(e) => setSql(e.target.value)}
         spellCheck={false}
+        aria-label="SQL query"
         className={cn(
-          'h-40 w-full resize-y rounded-lg border border-line bg-surface p-3 font-mono text-[12.5px] leading-5',
-          'outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+          'min-h-40 w-full shrink-0 resize-y rounded-[10px] border border-line bg-surface p-3',
+          'font-mono text-[12.5px] leading-5 text-ink',
+          'transition-colors duration-(--dur-1) hover:border-line-strong focus:border-line-strong',
         )}
       />
 
-      {run.isError ? (
-        <Card className="border-err/40 bg-err/5 px-3.5 py-2.5 font-mono text-[12.5px] text-err">
-          {String(run.error?.message ?? run.error)}
-        </Card>
-      ) : null}
+      <AnimatePresence>
+        {run.isError ? (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: dur.base, ease: ease.out }}
+          >
+            <Card className="border-err/40 bg-err/5 px-3.5 py-2.5 font-mono text-[12.5px] text-err">
+              {String(run.error?.message ?? run.error)}
+            </Card>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       {run.data ? (
-        <>
-          <div className="flex items-center gap-2 text-[12px] text-ink-dim">
-            <Badge tone="ok">{run.data.rowCount} rows</Badge>
-            <span>{fmtMs(run.data.elapsedMs)}</span>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.15, ease: ease.out }}
+          className="flex min-h-0 flex-1 flex-col gap-2"
+        >
+          <div className="flex items-center gap-2">
+            <Badge tone="ok" className="font-mono tabular-nums">
+              {run.data.rowCount} rows
+            </Badge>
+            <span className="font-mono text-[11.5px] tabular-nums text-ink-dim">
+              {fmtMs(run.data.elapsedMs)}
+            </span>
             {run.data.truncated ? (
               <Tip content="The endpoint caps result sets at 1000 rows. Narrow the query for the full picture.">
                 <span>
@@ -191,12 +228,12 @@ export function SqlPage() {
           </div>
           <Card className="min-h-0 flex-1 overflow-auto">
             <table className="w-full text-[12px] tabular-nums">
-              <thead className="sticky top-0 bg-raised">
+              <thead className="sticky top-0 z-10 bg-raised">
                 <tr>
                   {run.data.columns.map((c2) => (
                     <th
                       key={c2}
-                      className="whitespace-nowrap px-3 py-1.5 text-left font-mono font-semibold"
+                      className="whitespace-nowrap px-3 py-1.5 text-left font-mono text-[11.5px] font-semibold text-ink-dim"
                     >
                       {c2}
                     </th>
@@ -205,12 +242,19 @@ export function SqlPage() {
               </thead>
               <tbody>
                 {run.data.rows.map((row, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: SQL rows have no stable id
-                  <tr key={i} className="border-t border-line/40 hover:bg-raised/40">
+                  <tr
+                    // biome-ignore lint/suspicious/noArrayIndexKey: SQL rows have no stable id
+                    key={i}
+                    className="border-t border-line/40 transition-colors duration-(--dur-1) hover:bg-raised/40"
+                  >
                     {row.map((cell, j) => (
                       // biome-ignore lint/suspicious/noArrayIndexKey: SQL cells are positional
                       <td key={j} className="max-w-[380px] truncate px-3 py-1 font-mono">
-                        {cell == null ? <span className="text-ink-faint">NULL</span> : String(cell)}
+                        {cell == null ? (
+                          <span className="italic text-ink-faint">NULL</span>
+                        ) : (
+                          String(cell)
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -218,13 +262,15 @@ export function SqlPage() {
               </tbody>
             </table>
           </Card>
-        </>
+        </motion.div>
+      ) : run.isPending ? (
+        <Skeleton className="min-h-0 flex-1" />
       ) : !run.isError ? (
         <EmptyState icon={<TerminalSquare />} title="Run a query" className="flex-1">
           The endpoint executes on its own read-only connection in a worker thread — a runaway query
           gets terminated without ever blocking capture.
         </EmptyState>
       ) : null}
-    </div>
+    </Page>
   );
 }

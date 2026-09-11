@@ -4,14 +4,19 @@ import {
   Card,
   CardHeader,
   cn,
+  dur,
   EmptyState,
+  ease,
   fmtBytes,
   fmtClockMs,
   fmtDateTime,
   fmtMs,
   InferredTag,
+  listContainer,
+  listItem,
   NaValue,
   Skeleton,
+  STAGGER_CAP,
   StatusPill,
   shortId,
   Tabs,
@@ -23,13 +28,17 @@ import {
 } from '@saga/ui';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { motion } from 'motion/react';
 import { Link, useParams } from 'react-router';
 import { MessageCard } from '../components/BlockView';
 import { JsonView } from '../components/JsonTree';
 import { api } from '../lib/api';
+import { Page } from '../shell/Page';
 
 const CACHE_NA =
   'Nothing on this upstream produces cache token fields — verified against kiro-gateway. n/a, not 0.';
+
+const TH = 'px-3.5 py-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-faint';
 
 export function RequestInspectorPage() {
   const { id = '' } = useParams();
@@ -42,8 +51,12 @@ export function RequestInspectorPage() {
   if (q.isLoading) {
     return (
       <div className="space-y-3 p-4">
-        <Skeleton className="h-16" />
-        <Skeleton className="h-96" />
+        <Skeleton className="h-9" />
+        <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+        </div>
+        <Skeleton className="h-80" />
       </div>
     );
   }
@@ -63,24 +76,26 @@ export function RequestInspectorPage() {
   const s = d.summary;
 
   return (
-    <div className="space-y-3 p-4">
+    <Page>
       {/* ------------------------------------------------------- header */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link
           to="/live"
-          className="flex items-center gap-1 text-[12px] text-ink-dim hover:text-ink"
+          className="flex items-center gap-1 text-[12px] text-ink-dim transition-colors duration-(--dur-1) hover:text-ink"
         >
           <ArrowLeft className="size-3.5" /> live
         </Link>
-        <span className="font-mono text-[13px] font-semibold">{shortId(s.requestId, 12)}</span>
-        <StatusPill status={s.status} />
+        <motion.span layoutId={`r-hero-${s.requestId}`} className="inline-flex items-center gap-3">
+          <span className="font-mono text-[13px] font-semibold">{shortId(s.requestId, 12)}</span>
+          <StatusPill status={s.status} />
+        </motion.span>
         <span className="font-mono text-[12px] text-ink-dim">{s.model ?? s.endpoint}</span>
         <Badge>{s.adapterId}</Badge>
         {s.stream ? <Badge tone="info">stream</Badge> : <Badge>non-stream</Badge>}
         <Tip content={`Session ${s.sessionId}`}>
           <Link
             to={`/sessions/${s.sessionId}`}
-            className="inline-flex items-center gap-1.5 text-[11.5px] text-ink-faint hover:text-ink"
+            className="inline-flex items-center gap-1.5 text-[11.5px] text-ink-faint transition-colors duration-(--dur-1) hover:text-ink"
           >
             {shortId(s.sessionId)} <InferredTag what="session" />
           </Link>
@@ -91,7 +106,9 @@ export function RequestInspectorPage() {
         >
           context breakdown →
         </Link>
-        <span className="ml-auto text-[11.5px] text-ink-faint">{fmtDateTime(s.ts)}</span>
+        <span className="ml-auto font-mono text-[11.5px] tabular-nums text-ink-faint">
+          {fmtDateTime(s.ts)}
+        </span>
       </div>
 
       {/* ------------------------------------------------ usage + timing */}
@@ -100,19 +117,20 @@ export function RequestInspectorPage() {
           <CardHeader title="Timing" hint="measured at the proxy, client-side of the wire" />
           <div className="px-3.5 pb-3.5">
             <TimelineBar
+              key={s.requestId}
               sentAt={d.timeline.sentAt}
               firstTokenAt={d.timeline.firstTokenAt}
               finishedAt={d.timeline.finishedAt}
             />
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-ink-dim">
               <span>
-                ttft <b className="font-mono text-ink">{fmtMs(s.ttftMs)}</b>
+                ttft <b className="font-mono tabular-nums text-ink">{fmtMs(s.ttftMs)}</b>
               </span>
               <span>
-                total <b className="font-mono text-ink">{fmtMs(s.latencyMs)}</b>
+                total <b className="font-mono tabular-nums text-ink">{fmtMs(s.latencyMs)}</b>
               </span>
               {d.frameStats ? (
-                <span>
+                <span className="font-mono tabular-nums">
                   {d.frameStats.frames} frames · {fmtBytes(d.frameStats.bytes)}
                   {d.frameStats.parseErrors > 0 ? (
                     <span className="text-warn"> · {d.frameStats.parseErrors} parse errors</span>
@@ -184,41 +202,66 @@ export function RequestInspectorPage() {
         <TabsList>
           <TabsTrigger value="conversation">
             Conversation
-            <span className="ml-1.5 text-[10.5px] text-ink-faint">
+            <span className="ml-1.5 font-mono text-[10.5px] tabular-nums text-ink-faint">
               {d.request.system.length + d.request.messages.length + (d.response.message ? 1 : 0)}
             </span>
           </TabsTrigger>
           <TabsTrigger value="tools">
             Tool definitions
-            <span className="ml-1.5 text-[10.5px] text-ink-faint">{d.request.tools.length}</span>
+            <span className="ml-1.5 font-mono text-[10.5px] tabular-nums text-ink-faint">
+              {d.request.tools.length}
+            </span>
           </TabsTrigger>
           <TabsTrigger value="params">Params</TabsTrigger>
           <TabsTrigger value="raw">Raw JSON</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="conversation" className="space-y-2.5 pt-3">
-          {d.request.system.map((m, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: system messages are positional
-            <MessageCard key={`s${i}`} msg={m} title="system" requestTs={s.ts} />
-          ))}
-          {d.request.messages.map((m, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: conversation messages are positional
-            <MessageCard key={`m${i}`} msg={m} requestTs={s.ts} />
-          ))}
-          {d.response.message ? (
-            <div className="relative">
-              <div className="absolute -left-2 top-0 bottom-0 w-0.5 rounded bg-accent/60" />
-              <MessageCard msg={d.response.message} title="assistant · response" requestTs={s.ts} />
-            </div>
-          ) : (
-            <EmptyState title={s.status === null ? 'Still streaming…' : 'No response captured'}>
-              {s.status === 'upstream_error'
-                ? 'The upstream returned an error before producing content.'
-                : s.status === null
-                  ? 'This view refreshes live until the request finishes.'
-                  : 'The stream ended without content frames.'}
-            </EmptyState>
-          )}
+        <TabsContent value="conversation" className="pt-3">
+          <motion.div
+            variants={listContainer}
+            initial="initial"
+            animate="animate"
+            className="space-y-2.5"
+          >
+            {d.request.system.map((m, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: system messages are positional
+              <motion.div key={`s${i}`} variants={i < STAGGER_CAP ? listItem : undefined}>
+                <MessageCard msg={m} title="system" requestTs={s.ts} />
+              </motion.div>
+            ))}
+            {d.request.messages.map((m, i) => (
+              <motion.div
+                // biome-ignore lint/suspicious/noArrayIndexKey: conversation messages are positional
+                key={`m${i}`}
+                variants={d.request.system.length + i < STAGGER_CAP ? listItem : undefined}
+              >
+                <MessageCard msg={m} requestTs={s.ts} />
+              </motion.div>
+            ))}
+            {d.response.message ? (
+              <motion.div
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: dur.base, ease: ease.out }}
+                className="relative"
+              >
+                <div className="absolute -left-2 top-0 bottom-0 w-0.5 rounded bg-accent/60" />
+                <MessageCard
+                  msg={d.response.message}
+                  title="assistant · response"
+                  requestTs={s.ts}
+                />
+              </motion.div>
+            ) : (
+              <EmptyState title={s.status === null ? 'Still streaming…' : 'No response captured'}>
+                {s.status === 'upstream_error'
+                  ? 'The upstream returned an error before producing content.'
+                  : s.status === null
+                    ? 'This view refreshes live until the request finishes.'
+                    : 'The stream ended without content frames.'}
+              </EmptyState>
+            )}
+          </motion.div>
         </TabsContent>
 
         <TabsContent value="tools" className="pt-3">
@@ -228,18 +271,20 @@ export function RequestInspectorPage() {
             <Card>
               <table className="w-full text-[12.5px]">
                 <thead>
-                  <tr className="border-b border-line text-left text-[10.5px] uppercase tracking-[0.08em] text-ink-faint">
-                    <th className="px-3.5 py-2 font-semibold">name</th>
-                    <th className="px-3.5 py-2 font-semibold">description</th>
-                    <th className="px-3.5 py-2 text-right font-semibold">schema</th>
+                  <tr className="border-b border-line text-left">
+                    <th className={TH}>name</th>
+                    <th className={TH}>description</th>
+                    <th className={`${TH} text-right`}>schema</th>
                   </tr>
                 </thead>
                 <tbody>
                   {d.request.tools.map((t) => (
                     <tr key={t.name} className="border-b border-line/50 last:border-0">
                       <td className="px-3.5 py-1.5 font-mono">{t.name}</td>
-                      <td className="px-3.5 py-1.5 text-ink-dim">{fmtBytes(t.descriptionBytes)}</td>
-                      <td className="px-3.5 py-1.5 text-right font-mono text-ink-dim">
+                      <td className="px-3.5 py-1.5 font-mono tabular-nums text-ink-dim">
+                        {fmtBytes(t.descriptionBytes)}
+                      </td>
+                      <td className="px-3.5 py-1.5 text-right font-mono tabular-nums text-ink-dim">
                         {fmtBytes(t.inputSchemaBytes)}
                       </td>
                     </tr>
@@ -265,7 +310,7 @@ export function RequestInspectorPage() {
           <JsonView json={d.request.rawRequestJson} />
         </TabsContent>
       </Tabs>
-    </div>
+    </Page>
   );
 }
 
@@ -322,14 +367,22 @@ function TimelineBar({
         <Tip
           content={`waiting for first token — ${fmtMs(firstTokenAt ? firstTokenAt - sentAt : null)}`}
         >
-          <div
-            className="h-full bg-info/60"
+          <motion.div
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ duration: dur.slow, ease: ease.out }}
+            className="h-full origin-left bg-info/60"
             style={{ width: `${Math.max(2, Math.min(100, waitPct))}%` }}
           />
         </Tip>
         {firstTokenAt && finishedAt ? (
           <Tip content={`streaming — ${fmtMs(finishedAt - firstTokenAt)}`}>
-            <div className="h-full flex-1 bg-accent/70" />
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ duration: dur.slow, ease: ease.out, delay: dur.slow * 0.7 }}
+              className="h-full flex-1 origin-left bg-accent/70"
+            />
           </Tip>
         ) : null}
       </div>
@@ -342,7 +395,7 @@ function TimelineBar({
         />
         <Tick label={finishedAt ? 'finished' : 'in flight'} at={finishedAt} align="right" />
       </div>
-      <div className={cn('mt-1.5 text-[10.5px] text-ink-faint')}>
+      <div className="mt-1.5 text-[10.5px] text-ink-faint">
         Honest spans only: upstream internals (queueing, memory injection, provider time) are
         invisible from a wrapper — SAGA shows what it can actually measure.
       </div>

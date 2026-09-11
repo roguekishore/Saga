@@ -1,8 +1,9 @@
 import type { LogPage } from '@saga/contracts';
 import { LogPageSchema } from '@saga/contracts';
-import { Badge, Button, cn, EmptyState, fmtTime, Input, Select } from '@saga/ui';
-import { Pause, Play, ScrollText } from 'lucide-react';
+import { Badge, Button, cn, EmptyState, fmtInt, fmtTime, Input, Select } from '@saga/ui';
+import { FilterX, Pause, Play, ScrollText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Page } from '../shell/Page';
 
 /**
  * Logs Explorer — SAGA's OWN logs (ring buffer, scrubbed at write). Upstream
@@ -61,8 +62,8 @@ export function LogsPage() {
   });
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+    <Page flush className="flex flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 py-2">
         <Button variant={paused ? 'solid' : 'outline'} onClick={() => setPaused((p) => !p)}>
           {paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
           {paused ? 'resume' : 'pause'}
@@ -73,38 +74,63 @@ export function LogsPage() {
           onChange={(e) => setFilter(e.target.value)}
           className="max-w-xs"
         />
-        <Select value={level} onChange={(e) => setLevel(e.target.value)}>
+        <Select value={level} onChange={(e) => setLevel(e.target.value)} aria-label="log level">
           <option value="">all levels</option>
           <option value="debug">debug</option>
           <option value="info">info</option>
           <option value="warn">warn</option>
           <option value="error">error</option>
         </Select>
-        <span className="ml-auto text-[11px] text-ink-faint">
+        <span className="ml-auto text-right text-[11px] leading-4 text-ink-faint">
           SAGA's own channel · scrubbed at write · upstream logs are outside the wrapper boundary
         </span>
       </div>
 
+      {/* No per-row entrances here: lines arrive continuously and the surface must stay cheap. */}
       <div className="min-h-0 flex-1 overflow-y-auto p-2 font-mono text-[12px] leading-5">
         {visible.length === 0 ? (
-          <EmptyState icon={<ScrollText />} title="No log lines yet" className="m-6" />
+          lines.length === 0 ? (
+            <EmptyState icon={<ScrollText />} title="No log lines yet" className="m-6 font-sans">
+              SAGA's own process logs stream in here as they happen — scrubbed at write, polled from
+              the in-memory ring buffer. Upstream gateway logs are outside the wrapper boundary.
+            </EmptyState>
+          ) : (
+            <EmptyState
+              icon={<FilterX />}
+              title="No lines match the current filters"
+              className="m-6 font-sans"
+              action={
+                <Button
+                  onClick={() => {
+                    setFilter('');
+                    setLevel('');
+                  }}
+                >
+                  clear filters
+                </Button>
+              }
+            >
+              <span className="font-mono tabular-nums">{fmtInt(lines.length)}</span> buffered lines
+              are hidden by the active filter and level.
+            </EmptyState>
+          )
         ) : (
           visible.map((l) => (
             <div
               key={l.seq}
-              className="flex gap-2 whitespace-pre-wrap break-all px-1 hover:bg-raised/50"
+              className="flex gap-2 whitespace-pre-wrap break-all rounded-sm px-1.5 transition-colors duration-(--dur-1) hover:bg-raised/50"
             >
-              <span className="shrink-0 text-ink-faint">{fmtTime(l.ts)}</span>
+              <span className="shrink-0 tabular-nums text-ink-faint">{fmtTime(l.ts)}</span>
               <span className={cn('w-11 shrink-0 font-semibold', LEVEL_TONE[l.level])}>
                 {l.level}
               </span>
-              <Badge className="shrink-0">{l.scope}</Badge>
+              <Badge className="shrink-0 font-mono">{l.scope}</Badge>
               <span>{l.message}</span>
             </div>
           ))
         )}
         <div ref={bottomRef} />
       </div>
-    </div>
+    </Page>
   );
 }

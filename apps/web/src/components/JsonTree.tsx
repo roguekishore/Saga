@@ -100,7 +100,9 @@ function Primitive({ value }: { value: unknown }) {
   if (typeof value === 'string') {
     const isRedacted = value.includes('[REDACTED:');
     return (
-      <span className={cn('whitespace-pre-wrap break-all', isRedacted ? 'text-warn' : 'text-ok')}>
+      <span
+        className={cn('whitespace-pre-wrap break-all', isRedacted ? 'text-warn' : 'text-ink-dim')}
+      >
         {JSON.stringify(value)}
       </span>
     );

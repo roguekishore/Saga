@@ -116,6 +116,15 @@ body {
   }
 }
 
+@keyframes saga-wash {
+  from {
+    opacity: 0.22;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 @keyframes saga-scale-in {
   from {
     opacity: 0;

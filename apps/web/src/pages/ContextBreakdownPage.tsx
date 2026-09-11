@@ -3,11 +3,10 @@ import {
   Badge,
   Card,
   CardHeader,
-  cn,
   EmptyState,
   fmtBytes,
   fmtTokens,
-  ProvenanceDot,
+  ProvenanceMark,
   Skeleton,
   shortId,
   Tip,
@@ -18,6 +17,8 @@ import { ArrowLeft } from 'lucide-react';
 import { lazy, Suspense, useMemo } from 'react';
 import { Link, useParams } from 'react-router';
 import { api } from '../lib/api';
+import { useThemeColors } from '../lib/use-theme-colors';
+import { Page } from '../shell/Page';
 
 const Treemap = lazy(() => import('../components/ContextTreemap'));
 
@@ -28,15 +29,20 @@ const Treemap = lazy(() => import('../components/ContextTreemap'));
  * and it is labeled as exactly that.
  */
 
-const SEGMENT_COLORS: Record<string, string> = {
-  system: 'var(--saga-warn)',
-  history: 'var(--saga-info)',
-  user: 'var(--saga-ok)',
-  tool: 'var(--saga-inferred)',
-  spec: 'var(--saga-prov-saga)',
-  memory: 'var(--saga-thinking)',
-  unknown: 'var(--saga-ink-faint)',
-};
+/** Segment identity uses the categorical slots — status hues stay reserved. */
+const SEGMENT_VARS: Array<[segment: string, cssVar: string]> = [
+  ['system', '--saga-cat-1'],
+  ['history', '--saga-cat-6'],
+  ['user', '--saga-cat-4'],
+  ['tool', '--saga-cat-3'],
+  ['spec', '--saga-cat-5'],
+  ['memory', '--saga-cat-2'],
+  ['unknown', '--saga-ink-faint'],
+];
+
+const SEGMENT_COLORS: Record<string, string> = Object.fromEntries(
+  SEGMENT_VARS.map(([seg, v]) => [seg, `var(${v})`]),
+);
 
 function blockChars(b: ContentBlock): number {
   switch (b.type) {
@@ -65,7 +71,17 @@ export function ContextBreakdownPage() {
   const { id = '' } = useParams();
   const q = useQuery({ queryKey: ['request', id], queryFn: () => api.requestDetail(id) });
 
-  if (q.isLoading) return <Skeleton className="m-4 h-80" />;
+  if (q.isLoading) {
+    return (
+      <div className="space-y-3 p-4">
+        <Skeleton className="h-9" />
+        <div className="grid gap-3 lg:grid-cols-[380px_1fr]">
+          <Skeleton className="h-72" />
+          <Skeleton className="h-[420px]" />
+        </div>
+      </div>
+    );
+  }
   if (!q.data) return <EmptyState className="m-6" title="Request not found" />;
   const d: RequestDetail = q.data;
 
@@ -105,12 +121,20 @@ function Breakdown({ d }: { d: RequestDetail }) {
 
   const estTokens = (chars: number): number => Math.ceil(chars / 4);
 
+  // The treemap paints to canvas, which cannot resolve CSS variables — feed
+  // it theme-resolved hex while the DOM swatches keep the live var() form.
+  const resolved = useThemeColors(SEGMENT_VARS.map(([, v]) => v));
+  const treemapColor = (seg: string): string => {
+    const i = SEGMENT_VARS.findIndex(([name]) => name === seg);
+    return resolved[i === -1 ? SEGMENT_VARS.length - 1 : i]!;
+  };
+
   return (
-    <div className="space-y-3 p-4">
+    <Page>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <Link
           to={`/requests/${d.summary.requestId}`}
-          className="flex items-center gap-1 text-[12px] text-ink-dim hover:text-ink"
+          className="flex items-center gap-1 text-[12px] text-ink-dim transition-colors duration-(--dur-1) hover:text-ink"
         >
           <ArrowLeft className="size-3.5" /> request
         </Link>
@@ -121,7 +145,9 @@ function Breakdown({ d }: { d: RequestDetail }) {
         <span className="ml-auto flex items-center gap-3 text-[12px] text-ink-dim">
           <span>
             redacted payload{' '}
-            <b className="font-mono text-ink">{fmtBytes(d.request.rawRequestJson.length)}</b>
+            <b className="font-mono tabular-nums text-ink">
+              {fmtBytes(d.request.rawRequestJson.length)}
+            </b>
           </span>
         </span>
       </div>
@@ -133,15 +159,15 @@ function Breakdown({ d }: { d: RequestDetail }) {
             hint="chars of redacted content — real bytes"
           />
           <div className="space-y-2 px-3.5 pb-3">
-            {/* stacked bar */}
-            <div className="flex h-3.5 w-full overflow-hidden rounded-full bg-raised">
+            {/* stacked bar — 2px canvas gaps keep adjacent fills separable */}
+            <div className="flex h-3.5 w-full gap-[2px] overflow-hidden rounded-full">
               {bySegment.entries.map(([seg, v]) => (
                 <Tip
                   key={seg}
                   content={`${seg}: ${fmtBytes(v.chars)} across ${v.count} message(s)`}
                 >
                   <div
-                    className="h-full"
+                    className="h-full first:rounded-l-full last:rounded-r-full"
                     style={{
                       width: `${Math.max(1.5, (v.chars / bySegment.total) * 100)}%`,
                       background: SEGMENT_COLORS[seg] ?? 'var(--saga-ink-faint)',
@@ -160,11 +186,11 @@ function Breakdown({ d }: { d: RequestDetail }) {
                   {seg}
                   <span className="text-ink-faint">×{v.count}</span>
                 </span>
-                <span className="tabular-nums text-ink-dim">
+                <span className="font-mono tabular-nums text-ink-dim">
                   {fmtBytes(v.chars)}
                   <Tip content="chars/4 heuristic — the wire reports no per-segment tokens. SAGA-estimated, labeled as such.">
                     <span className="ml-2 inline-flex cursor-default items-center gap-1 text-ink-faint">
-                      <ProvenanceDot tone="saga" />~{fmtTokens(estTokens(v.chars))} tok
+                      <ProvenanceMark tone="saga" />~{fmtTokens(estTokens(v.chars))} tok
                     </span>
                   </Tip>
                 </span>
@@ -188,20 +214,20 @@ function Breakdown({ d }: { d: RequestDetail }) {
 
         <Card>
           <CardHeader title="Messages by size" hint="treemap of redacted content" />
-          <div className={cn('h-[380px] px-2 pb-2')}>
+          <div className="h-[420px] px-2 pb-2">
             <Suspense fallback={<Skeleton className="h-full" />}>
               <Treemap
                 items={rows.map((r) => ({
                   name: r.label,
                   value: Math.max(1, r.chars),
                   segment: r.segment,
-                  color: SEGMENT_COLORS[r.segment] ?? 'var(--saga-ink-faint)',
+                  color: treemapColor(r.segment),
                 }))}
               />
             </Suspense>
           </div>
         </Card>
       </div>
-    </div>
+    </Page>
   );
 }

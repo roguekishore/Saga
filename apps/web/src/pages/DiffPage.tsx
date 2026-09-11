@@ -1,10 +1,24 @@
 import type { RequestDetail } from '@saga/contracts';
-import { Badge, Button, Card, cn, EmptyState, fmtTime, Select, Skeleton, shortId } from '@saga/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  cn,
+  dur,
+  EmptyState,
+  ease,
+  fmtTime,
+  Select,
+  Skeleton,
+  shortId,
+} from '@saga/ui';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeftRight } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { type DiffLine, diffLines, diffStats } from '../lib/diff';
+import { Page } from '../shell/Page';
 
 /**
  * Prompt Diff: what changed between two requests' payloads — typically two
@@ -70,23 +84,43 @@ export function DiffPage() {
     return diffLines(textOf(aDetail.data, mode), textOf(bDetail.data, mode));
   }, [aDetail.data, bDetail.data, mode]);
 
-  if (recent.isLoading) return <Skeleton className="m-4 h-72" />;
+  if (recent.isLoading) {
+    return (
+      <Page flush className="flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-8 w-8" />
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-8 w-40" />
+        </div>
+        <Skeleton className="min-h-0 flex-1" />
+      </Page>
+    );
+  }
   if (items.length < 2) {
     return (
-      <div className="p-6">
-        <EmptyState icon={<ArrowLeftRight />} title="Need at least two captured requests" />
-      </div>
+      <Page flush className="flex flex-col p-4">
+        <EmptyState
+          icon={<ArrowLeftRight />}
+          title="Need at least two captured requests"
+          className="flex-1"
+        >
+          A diff needs a pair. Send two turns of one session through the proxy — the delta between
+          consecutive payloads is exactly the context the client injected.
+        </EmptyState>
+      </Page>
     );
   }
 
   const stats = diff ? diffStats(diff.lines) : null;
 
   return (
-    <div className="flex h-full flex-col gap-3 p-4">
+    <Page flush className="flex flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Select
           value={a?.requestId ?? ''}
           onChange={(e) => setAId(e.target.value)}
+          aria-label="request A"
           className="max-w-64 font-mono"
         >
           {items.map((i) => (
@@ -101,13 +135,14 @@ export function DiffPage() {
             setAId(b?.requestId ?? '');
             setBId(a?.requestId ?? '');
           }}
-          aria-label="swap"
+          aria-label="swap A and B"
         >
           <ArrowLeftRight className="size-3.5" />
         </Button>
         <Select
           value={b?.requestId ?? ''}
           onChange={(e) => setBId(e.target.value)}
+          aria-label="request B"
           className="max-w-64 font-mono"
         >
           {items.map((i) => (
@@ -116,7 +151,11 @@ export function DiffPage() {
             </option>
           ))}
         </Select>
-        <Select value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
+        <Select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as Mode)}
+          aria-label="diff source"
+        >
           <option value="conversation">conversation text</option>
           <option value="raw">raw JSON</option>
         </Select>
@@ -124,22 +163,33 @@ export function DiffPage() {
           {sideBySide ? 'side-by-side' : 'inline'}
         </Button>
         {stats ? (
-          <span className="ml-auto flex items-center gap-2 text-[12px]">
-            <Badge tone="ok">+{stats.added}</Badge>
-            <Badge tone="err">−{stats.removed}</Badge>
+          <span className="ml-auto flex items-center gap-2">
+            <Badge tone="ok" className="font-mono tabular-nums">
+              +{stats.added}
+            </Badge>
+            <Badge tone="err" className="font-mono tabular-nums">
+              −{stats.removed}
+            </Badge>
             {diff?.truncated ? <Badge tone="warn">too large — block diff</Badge> : null}
           </span>
         ) : null}
       </div>
 
       {!diff ? (
-        <Skeleton className="h-96" />
-      ) : sideBySide ? (
-        <SideBySide lines={diff.lines} />
+        <Skeleton className="min-h-0 flex-1" />
       ) : (
-        <Inline lines={diff.lines} />
+        // Keyed on the pair + mode: a recomputed diff fades in rather than snapping.
+        <motion.div
+          key={`${a?.requestId}:${b?.requestId}:${mode}`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: dur.base, ease: ease.out }}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          {sideBySide ? <SideBySide lines={diff.lines} /> : <Inline lines={diff.lines} />}
+        </motion.div>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -151,7 +201,7 @@ const LINE_STYLE: Record<DiffLine['kind'], string> = {
 
 function Inline({ lines }: { lines: DiffLine[] }) {
   return (
-    <Card className="min-h-0 flex-1 overflow-auto font-mono text-[11.5px] leading-5">
+    <Card className="min-h-0 flex-1 overflow-auto py-1 font-mono text-[11.5px] leading-5">
       {lines.map((l, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional; no stable id
         <div key={i} className={cn('flex whitespace-pre-wrap break-all px-2', LINE_STYLE[l.kind])}>
@@ -184,7 +234,7 @@ function SideBySide({ lines }: { lines: DiffLine[] }) {
     }
   }
   return (
-    <Card className="min-h-0 flex-1 overflow-auto">
+    <Card className="min-h-0 flex-1 overflow-auto py-1">
       <div className="grid grid-cols-2 font-mono text-[11.5px] leading-5">
         {rows.map((r, idx) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: diff rows are positional; no stable id

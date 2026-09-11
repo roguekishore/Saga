@@ -53,7 +53,7 @@ export function MessageCard({
   // the labels apply retroactively to already-captured history.
   const blockCtx = classifyBlocks(msg.blocks, msg.role);
   return (
-    <div className="rounded-lg border border-line bg-surface">
+    <div className="rounded-[10px] border border-line bg-surface shadow-card">
       <div className="flex items-center gap-2 border-b border-line/60 px-3 py-1.5">
         <span
           className={cn('text-[11px] font-bold uppercase tracking-[0.1em]', ROLE_TONE[msg.role])}
@@ -63,7 +63,7 @@ export function MessageCard({
         <Badge>{msg.contextSource}</Badge>
         {msg.contextSourceInferred ? <InferredTag what="memory" /> : null}
         <MessageTime firstObservedAt={msg.firstObservedAt} requestTs={requestTs} />
-        <span className="ml-auto text-[10.5px] text-ink-faint">
+        <span className="ml-auto font-mono text-[10.5px] tabular-nums text-ink-faint">
           {msg.blocks.length} block{msg.blocks.length === 1 ? '' : 's'}
         </span>
       </div>
@@ -150,7 +150,7 @@ function LabeledBlock({ block, ctx }: { block: ContentBlock; ctx: BlockContext |
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="ml-auto cursor-pointer text-[10.5px] text-ink-faint hover:text-ink"
+            className="ml-auto cursor-pointer text-[10.5px] text-ink-faint transition-colors duration-(--dur-1) hover:text-ink"
           >
             {open ? 'collapse' : 'expand'}
           </button>
@@ -160,7 +160,7 @@ function LabeledBlock({ block, ctx }: { block: ContentBlock; ctx: BlockContext |
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="w-full cursor-pointer truncate rounded-md bg-canvas/40 px-3 py-2 text-left font-mono text-[11.5px] text-ink-faint hover:bg-canvas/60"
+          className="w-full cursor-pointer truncate rounded-md bg-canvas/40 px-3 py-2 text-left font-mono text-[11.5px] text-ink-faint transition-colors duration-(--dur-1) hover:bg-canvas/60"
         >
           {block.type === 'text' ? block.text.slice(0, 160) : '…'}
         </button>

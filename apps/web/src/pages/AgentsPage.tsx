@@ -6,6 +6,8 @@ import {
   EmptyState,
   fmtInt,
   InferredTag,
+  listContainer,
+  listItem,
   Select,
   Skeleton,
   shortId,
@@ -13,9 +15,11 @@ import {
 } from '@saga/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, CornerDownRight } from 'lucide-react';
+import { motion } from 'motion/react';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../lib/api';
+import { Page } from '../shell/Page';
 
 const AgentGraph = lazy(() => import('../components/AgentGraph'));
 
@@ -46,21 +50,34 @@ export function AgentsPage() {
   const sessionId = selected ?? bySession[0]?.[0] ?? null;
   const agents = bySession.find(([sid]) => sid === sessionId)?.[1] ?? [];
 
-  if (agentsQ.isLoading) return <Skeleton className="m-4 h-72" />;
-
-  if (bySession.length === 0) {
+  if (agentsQ.isLoading) {
     return (
-      <div className="p-6">
-        <EmptyState icon={<Bot />} title="No agents correlated yet">
-          Agents appear when a session shows more than one system-prompt fingerprint — e.g. a Claude
-          Code run that spawns subagents. Correlation is heuristic and always labeled inferred.
-        </EmptyState>
+      <div className="space-y-3 p-4">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-5 w-72" />
+          <Skeleton className="ml-auto h-8 w-64" />
+        </div>
+        <div className="grid gap-3 lg:grid-cols-[360px_1fr]">
+          <Skeleton className="h-72" />
+          <Skeleton className="h-[452px]" />
+        </div>
       </div>
     );
   }
 
+  if (bySession.length === 0) {
+    return (
+      <Page>
+        <EmptyState icon={<Bot />} title="No agents correlated yet">
+          Agents appear when a session shows more than one system-prompt fingerprint — e.g. a Claude
+          Code run that spawns subagents. Correlation is heuristic and always labeled inferred.
+        </EmptyState>
+      </Page>
+    );
+  }
+
   return (
-    <div className="space-y-3 p-4">
+    <Page>
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-1.5 text-[12px] text-ink-dim">
           Parent/child edges are inferred from timing overlap <InferredTag what="agent" />
@@ -78,39 +95,48 @@ export function AgentsPage() {
         </Select>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[360px_1fr]">
+      <motion.div
+        variants={listContainer}
+        initial="initial"
+        animate="animate"
+        className="grid gap-3 lg:grid-cols-[360px_1fr]"
+      >
         {/* --------------------------------------------------- agent list */}
-        <Card>
-          <CardHeader
-            title="Agents"
-            hint="hierarchy"
-            right={
-              sessionId ? (
-                <Link
-                  to={`/sessions/${sessionId}`}
-                  className="text-[11.5px] text-accent hover:underline"
-                >
-                  open session →
-                </Link>
-              ) : undefined
-            }
-          />
-          <div className="px-2 pb-2">
-            <AgentTree agents={agents} />
-          </div>
-        </Card>
+        <motion.div variants={listItem}>
+          <Card className="h-full">
+            <CardHeader
+              title="Agents"
+              hint="hierarchy"
+              right={
+                sessionId ? (
+                  <Link
+                    to={`/sessions/${sessionId}`}
+                    className="text-[11.5px] font-medium text-accent hover:underline"
+                  >
+                    open session →
+                  </Link>
+                ) : undefined
+              }
+            />
+            <div className="px-2 pb-2">
+              <AgentTree agents={agents} />
+            </div>
+          </Card>
+        </motion.div>
 
         {/* -------------------------------------------------------- graph */}
-        <Card className="min-h-[420px]">
-          <CardHeader title="Agent graph" hint="React Flow + ELK · zoom, pan, drag" />
-          <div className="h-[420px]">
-            <Suspense fallback={<Skeleton className="m-3 h-[380px]" />}>
-              <AgentGraph agents={agents} />
-            </Suspense>
-          </div>
-        </Card>
-      </div>
-    </div>
+        <motion.div variants={listItem}>
+          <Card className="h-full min-h-[420px]">
+            <CardHeader title="Agent graph" hint="React Flow + ELK · zoom, pan, drag" />
+            <div className="h-[420px]">
+              <Suspense fallback={<Skeleton className="m-3 h-[380px]" />}>
+                <AgentGraph agents={agents} />
+              </Suspense>
+            </div>
+          </Card>
+        </motion.div>
+      </motion.div>
+    </Page>
   );
 }
 
@@ -124,7 +150,7 @@ function AgentTree({ agents }: { agents: AgentSummary[] }) {
     <div key={a.agentId}>
       <Link
         to={`/live?agent=${a.agentId}`}
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-raised/70"
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors duration-(--dur-1) hover:bg-raised/70"
         style={{ paddingLeft: 8 + depth * 18 }}
       >
         {depth > 0 ? (
@@ -135,7 +161,7 @@ function AgentTree({ agents }: { agents: AgentSummary[] }) {
         <span className="truncate text-[12.5px] font-medium">{a.label}</span>
         <InferredTag what="agent" />
         <span className="ml-auto flex shrink-0 items-center gap-2.5 text-[11px] text-ink-dim">
-          <span>{fmtInt(a.requests)} req</span>
+          <span className="font-mono tabular-nums">{fmtInt(a.requests)} req</span>
           <AggValue agg={a.outputTokens} />
           <span className="text-ink-faint">{timeAgo(a.lastSeenAt)}</span>
         </span>
