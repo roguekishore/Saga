@@ -1,4 +1,4 @@
-import { Badge, cn, fmtBytes, Tip, TooltipProvider } from '@saga/ui';
+import { Badge, cn, fmtBytes, Skeleton, Tip, TooltipProvider } from '@saga/ui';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
@@ -17,7 +17,7 @@ import {
   TerminalSquare,
   Wrench,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { CommandPalette } from '../components/CommandPalette';
 import { api } from '../lib/api';
@@ -96,6 +96,20 @@ const TITLES: Array<[RegExp, string]> = [
   [/^\/logs/, 'Logs Explorer'],
   [/^\/settings/, 'Settings'],
 ];
+
+/** Route-chunk loading state: neutral shapes, no spinner theater. */
+function PageFallback() {
+  return (
+    <div aria-busy className="space-y-3 p-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {['a', 'b', 'c', 'd'].map((k) => (
+          <Skeleton key={k} className="h-20" />
+        ))}
+      </div>
+      <Skeleton className="h-72" />
+    </div>
+  );
+}
 
 export function AppShell() {
   useLiveSocket();
@@ -231,7 +245,9 @@ export function AppShell() {
           </header>
 
           <main className="min-h-0 flex-1 overflow-y-auto">
-            <Outlet />
+            <Suspense fallback={<PageFallback />}>
+              <Outlet />
+            </Suspense>
           </main>
 
           <footer className="flex h-6 shrink-0 items-center gap-4 border-t border-line bg-surface px-4 text-[10.5px] text-ink-faint">

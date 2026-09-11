@@ -1,25 +1,82 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { StrictMode } from 'react';
+import { lazy, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router';
-import { AgentsPage } from './pages/AgentsPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { ContextBreakdownPage } from './pages/ContextBreakdownPage';
-import { DiffPage } from './pages/DiffPage';
-import { LiveMonitorPage } from './pages/LiveMonitorPage';
-import { LogsPage } from './pages/LogsPage';
-import { OverviewPage } from './pages/OverviewPage';
-import { RequestInspectorPage } from './pages/RequestInspectorPage';
-import { SearchPage } from './pages/SearchPage';
-import { SessionDetailPage } from './pages/SessionDetailPage';
-import { SessionsPage } from './pages/SessionsPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { SqlPage } from './pages/SqlPage';
-import { StoragePage } from './pages/StoragePage';
-import { ToolsPage } from './pages/ToolsPage';
-import { WaterfallPage } from './pages/WaterfallPage';
 import { AppShell } from './shell/AppShell';
 import './index.css';
+
+/**
+ * Every page is its own chunk. The shell paints immediately; page code
+ * arrives on navigation. Heavy vendors (charts, graph, 3d) are split further
+ * in vite.config so no route drags a renderer it does not use.
+ */
+const page = <T,>(load: () => Promise<T>, pick: (m: T) => React.ComponentType) =>
+  lazy(() => load().then((m) => ({ default: pick(m) })));
+
+const OverviewPage = page(
+  () => import('./pages/OverviewPage'),
+  (m) => m.OverviewPage,
+);
+const LiveMonitorPage = page(
+  () => import('./pages/LiveMonitorPage'),
+  (m) => m.LiveMonitorPage,
+);
+const RequestInspectorPage = page(
+  () => import('./pages/RequestInspectorPage'),
+  (m) => m.RequestInspectorPage,
+);
+const ContextBreakdownPage = page(
+  () => import('./pages/ContextBreakdownPage'),
+  (m) => m.ContextBreakdownPage,
+);
+const SessionsPage = page(
+  () => import('./pages/SessionsPage'),
+  (m) => m.SessionsPage,
+);
+const SessionDetailPage = page(
+  () => import('./pages/SessionDetailPage'),
+  (m) => m.SessionDetailPage,
+);
+const SearchPage = page(
+  () => import('./pages/SearchPage'),
+  (m) => m.SearchPage,
+);
+const AnalyticsPage = page(
+  () => import('./pages/AnalyticsPage'),
+  (m) => m.AnalyticsPage,
+);
+const StoragePage = page(
+  () => import('./pages/StoragePage'),
+  (m) => m.StoragePage,
+);
+const AgentsPage = page(
+  () => import('./pages/AgentsPage'),
+  (m) => m.AgentsPage,
+);
+const ToolsPage = page(
+  () => import('./pages/ToolsPage'),
+  (m) => m.ToolsPage,
+);
+const DiffPage = page(
+  () => import('./pages/DiffPage'),
+  (m) => m.DiffPage,
+);
+const WaterfallPage = page(
+  () => import('./pages/WaterfallPage'),
+  (m) => m.WaterfallPage,
+);
+const SqlPage = page(
+  () => import('./pages/SqlPage'),
+  (m) => m.SqlPage,
+);
+const LogsPage = page(
+  () => import('./pages/LogsPage'),
+  (m) => m.LogsPage,
+);
+const SettingsPage = page(
+  () => import('./pages/SettingsPage'),
+  (m) => m.SettingsPage,
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
