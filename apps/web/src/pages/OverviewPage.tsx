@@ -9,6 +9,8 @@ import {
   fmtTokens,
   InferredTag,
   KpiCard,
+  listContainer,
+  listItem,
   NaValue,
   ProvenanceLegend,
   pct,
@@ -18,9 +20,11 @@ import {
 } from '@saga/ui';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Radio } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Link } from 'react-router';
 import { api } from '../lib/api';
 import { useLive } from '../lib/live-store';
+import { Page } from '../shell/Page';
 
 const CACHE_NA =
   'No adapter in play produces cache token fields — on kiro-gateway nothing emits cache_read/cache_write (verified). n/a is the honest render, not 0.';
@@ -48,63 +52,86 @@ export function OverviewPage() {
   }
 
   return (
-    <div className="space-y-3 p-4">
+    <Page>
       {/* ------------------------------------------------------ KPI grid */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <KpiCard
-          label="active requests"
-          value={o.activeRequests}
-          tone={o.activeRequests > 0 ? 'accent' : undefined}
-          sub={o.activeRequests > 0 ? 'streaming now' : 'idle'}
-        />
-        <KpiCard
-          label={
-            <span className="inline-flex items-center gap-1.5">
-              active sessions <InferredTag what="session" />
-            </span>
-          }
-          value={o.activeSessions}
-          sub="last 5 minutes"
-        />
-        <KpiCard
-          label="requests today"
-          value={fmtInt(o.requestsToday)}
-          spark={o.requestsSparkline.map((p) => ({ t: p.t, v: p.v }))}
-        />
-        <KpiCard
-          label="output tokens today"
-          value={<AggValue agg={o.tokensToday.output} className="text-[20px]" />}
-          sub={<AggValue agg={o.tokensToday.input} render={(n) => `${fmtTokens(n)} in`} />}
-          spark={o.outputTokensSparkline.map((p) => ({ t: p.t, v: p.v }))}
-        />
-        <KpiCard label="avg latency" value={fmtMs(o.avgLatencyMs)} sub="today, request time" />
-        <KpiCard label="p95 latency" value={fmtMs(o.p95LatencyMs)} sub="today" />
-        <KpiCard
-          label="error rate"
-          value={
-            o.errorRateToday == null ? (
-              <NaValue reason="No requests today." />
-            ) : (
-              pct(o.errorRateToday)
-            )
-          }
-          tone={o.errorRateToday != null && o.errorRateToday > 0.05 ? 'err' : undefined}
-          sub="upstream errors / requests"
-        />
-        <KpiCard
-          label="cache hit ratio"
-          value={o.cacheHitRatio == null ? <NaValue reason={CACHE_NA} /> : pct(o.cacheHitRatio)}
-          sub={
-            o.costToday == null ? (
-              <span className="inline-flex items-center gap-1">
-                cost: <NaValue reason={COST_NA} />
+      <motion.div
+        variants={listContainer}
+        initial="initial"
+        animate="animate"
+        className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8"
+      >
+        {[
+          <KpiCard
+            key="active"
+            label="active requests"
+            value={o.activeRequests}
+            tone={o.activeRequests > 0 ? 'accent' : undefined}
+            sub={o.activeRequests > 0 ? 'streaming now' : 'idle'}
+          />,
+          <KpiCard
+            key="sessions"
+            label={
+              <span className="inline-flex items-center gap-1.5">
+                active sessions <InferredTag what="session" />
               </span>
-            ) : (
-              `cost ${o.costToday.value.toFixed(2)} ${o.costToday.currency}`
-            )
-          }
-        />
-      </div>
+            }
+            value={o.activeSessions}
+            sub="last 5 minutes"
+          />,
+          <KpiCard
+            key="requests"
+            label="requests today"
+            value={fmtInt(o.requestsToday)}
+            spark={o.requestsSparkline.map((p) => ({ t: p.t, v: p.v }))}
+          />,
+          <KpiCard
+            key="tokens"
+            label="output tokens today"
+            value={<AggValue agg={o.tokensToday.output} className="text-[20px]" />}
+            sub={<AggValue agg={o.tokensToday.input} render={(n) => `${fmtTokens(n)} in`} />}
+            spark={o.outputTokensSparkline.map((p) => ({ t: p.t, v: p.v }))}
+          />,
+          <KpiCard
+            key="avg"
+            label="avg latency"
+            value={fmtMs(o.avgLatencyMs)}
+            sub="today, request time"
+          />,
+          <KpiCard key="p95" label="p95 latency" value={fmtMs(o.p95LatencyMs)} sub="today" />,
+          <KpiCard
+            key="err"
+            label="error rate"
+            value={
+              o.errorRateToday == null ? (
+                <NaValue reason="No requests today." />
+              ) : (
+                pct(o.errorRateToday)
+              )
+            }
+            tone={o.errorRateToday != null && o.errorRateToday > 0.05 ? 'err' : undefined}
+            sub="upstream errors / requests"
+          />,
+          <KpiCard
+            key="cache"
+            label="cache hit ratio"
+            value={o.cacheHitRatio == null ? <NaValue reason={CACHE_NA} /> : pct(o.cacheHitRatio)}
+            sub={
+              o.costToday == null ? (
+                <span className="inline-flex items-center gap-1">
+                  cost: <NaValue reason={COST_NA} />
+                </span>
+              ) : (
+                `cost ${o.costToday.value.toFixed(2)} ${o.costToday.currency}`
+              )
+            }
+          />,
+        ].map((card, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: fixed kpi order, position is identity
+          <motion.div key={i} variants={listItem}>
+            {card}
+          </motion.div>
+        ))}
+      </motion.div>
 
       <div className="grid gap-3 lg:grid-cols-3">
         {/* ------------------------------------------------- live feed */}
@@ -127,37 +154,46 @@ export function OverviewPage() {
                 </code>{' '}
                 — or replay the fixture corpus with{' '}
                 <code className="rounded bg-raised px-1 py-px font-mono text-[11px]">
-                  pnpm --filter @saga/corpus seed
+                  npm run seed --workspace=tools/corpus
                 </code>
               </EmptyState>
             ) : (
               <ul>
-                {rows.slice(0, 8).map((r) => (
-                  <li key={r.requestId}>
-                    <Link
-                      to={`/requests/${r.requestId}`}
-                      className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-raised/70"
+                <AnimatePresence initial={false} mode="popLayout">
+                  {rows.slice(0, 8).map((r) => (
+                    <motion.li
+                      key={r.requestId}
+                      layout
+                      initial={{ opacity: 0, y: -8, scale: 0.995 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.18 }}
                     >
-                      <StatusPill status={r.status} className="w-20 shrink-0" />
-                      <span className="w-40 truncate font-mono text-[12px] text-ink-dim">
-                        {r.model ?? r.endpoint}
-                      </span>
-                      <span className="flex-1 truncate text-[12px] text-ink-faint">
-                        {r.adapterId} · {r.messageCount} msgs
-                        {r.toolUseCount > 0 ? ` · ${r.toolUseCount} tools` : ''}
-                        {r.status === null && r.liveChars > 0
-                          ? ` · ${fmtTokens(r.liveChars)} chars streamed`
-                          : ''}
-                      </span>
-                      <span className="w-16 text-right font-mono text-[11.5px] text-ink-dim">
-                        {fmtMs(r.latencyMs)}
-                      </span>
-                      <span className="w-16 text-right text-[11px] text-ink-faint">
-                        {timeAgo(r.ts)}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
+                      <Link
+                        to={`/requests/${r.requestId}`}
+                        className="flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors duration-(--dur-1) hover:bg-raised/70"
+                      >
+                        <StatusPill status={r.status} className="w-20 shrink-0" />
+                        <span className="w-40 truncate font-mono text-[12px] text-ink-dim">
+                          {r.model ?? r.endpoint}
+                        </span>
+                        <span className="flex-1 truncate text-[12px] text-ink-faint">
+                          {r.adapterId} · {r.messageCount} msgs
+                          {r.toolUseCount > 0 ? ` · ${r.toolUseCount} tools` : ''}
+                          {r.status === null && r.liveChars > 0
+                            ? ` · ${fmtTokens(r.liveChars)} chars streamed`
+                            : ''}
+                        </span>
+                        <span className="w-16 text-right font-mono text-[11.5px] text-ink-dim">
+                          {fmtMs(r.latencyMs)}
+                        </span>
+                        <span className="w-16 text-right text-[11px] text-ink-faint">
+                          {timeAgo(r.ts)}
+                        </span>
+                      </Link>
+                    </motion.li>
+                  ))}
+                </AnimatePresence>
               </ul>
             )}
           </div>
@@ -175,7 +211,7 @@ export function OverviewPage() {
                   <div key={m.model} className="flex items-center justify-between gap-2 py-1">
                     <span className="truncate font-mono text-[12px]">{m.model}</span>
                     <span className="flex items-center gap-3 text-[12px] text-ink-dim">
-                      <span>{fmtInt(m.requests)} req</span>
+                      <span className="tabular-nums">{fmtInt(m.requests)} req</span>
                       <AggValue agg={m.outputTokens} />
                     </span>
                   </div>
@@ -212,26 +248,37 @@ export function OverviewPage() {
             </div>
           </Card>
 
-          {live.length > 0 ? (
-            <Card className="border-info/30">
-              <CardHeader title="In flight" right={<Badge tone="info">{live.length}</Badge>} />
-              <div className="px-3.5 pb-3">
-                {live.slice(0, 4).map((r) => (
-                  <div
-                    key={r.requestId}
-                    className="flex justify-between py-0.5 font-mono text-[11.5px]"
-                  >
-                    <span className="truncate text-ink-dim">{r.model ?? r.endpoint}</span>
-                    <span className="text-info">{fmtTokens(r.liveChars)} chars</span>
+          <AnimatePresence>
+            {live.length > 0 ? (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.18 }}
+              >
+                <Card className="border-info/30">
+                  <CardHeader title="In flight" right={<Badge tone="info">{live.length}</Badge>} />
+                  <div className="px-3.5 pb-3">
+                    {live.slice(0, 4).map((r) => (
+                      <div
+                        key={r.requestId}
+                        className="flex justify-between py-0.5 font-mono text-[11.5px]"
+                      >
+                        <span className="truncate text-ink-dim">{r.model ?? r.endpoint}</span>
+                        <span className="tabular-nums text-info">
+                          {fmtTokens(r.liveChars)} chars
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </Card>
-          ) : null}
+                </Card>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
       </div>
 
       <ProvenanceLegend className="px-1 pt-1" />
-    </div>
+    </Page>
   );
 }

@@ -12,6 +12,7 @@ import {
   TabsTrigger,
 } from '@saga/ui';
 import { useQuery } from '@tanstack/react-query';
+import { BarChart3 } from 'lucide-react';
 import { useMemo } from 'react';
 import {
   Area,
@@ -38,13 +39,14 @@ import {
   useTimeRange,
 } from '../components/charts';
 import { api } from '../lib/api';
+import { Page } from '../shell/Page';
 
 export function AnalyticsPage() {
   const range = useTimeRange('7d');
 
   return (
-    <div className="space-y-3 p-4">
-      <div className="flex items-center justify-between">
+    <Page>
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-[12px] text-ink-dim">
           Token and latency analytics over captured traffic. Every aggregate inherits the provenance
           of what the wire actually reported.
@@ -66,6 +68,16 @@ export function AnalyticsPage() {
       </Tabs>
 
       <ProvenanceLegend className="px-1" />
+    </Page>
+  );
+}
+
+function ChartsSkeleton() {
+  return (
+    <div className="grid gap-3 xl:grid-cols-2">
+      <Skeleton className="h-72" />
+      <Skeleton className="h-72" />
+      <Skeleton className="h-44 xl:col-span-2" />
     </div>
   );
 }
@@ -109,11 +121,12 @@ function TokensTab({ from, to, bucket }: { from: number; to: number; bucket: 'ho
     };
   }, [byModel.data]);
 
-  if (total.isLoading) return <Skeleton className="h-72" />;
+  if (total.isLoading) return <ChartsSkeleton />;
   if (totalData.length === 0)
     return (
-      <EmptyState title="No traffic in this range">
-        Widen the range or send some requests.
+      <EmptyState icon={<BarChart3 />} title="No traffic in this range">
+        Widen the range, or send some requests through the proxy — analytics fill in as capture
+        happens.
       </EmptyState>
     );
 
@@ -132,8 +145,9 @@ function TokensTab({ from, to, bucket }: { from: number; to: number; bucket: 'ho
                 name="input"
                 stackId="1"
                 stroke="var(--saga-info)"
+                strokeWidth={1.5}
                 fill="var(--saga-info)"
-                fillOpacity={0.25}
+                fillOpacity={0.18}
                 isAnimationActive={false}
               />
               <Area
@@ -141,8 +155,9 @@ function TokensTab({ from, to, bucket }: { from: number; to: number; bucket: 'ho
                 name="output"
                 stackId="1"
                 stroke="var(--saga-accent)"
+                strokeWidth={1.5}
                 fill="var(--saga-accent)"
-                fillOpacity={0.35}
+                fillOpacity={0.3}
                 isAnimationActive={false}
               />
             </AreaChart>
@@ -151,7 +166,7 @@ function TokensTab({ from, to, bucket }: { from: number; to: number; bucket: 'ho
       </Card>
 
       <Card>
-        <CardHeader title="Output tokens by model" />
+        <CardHeader title="Output tokens by model" hint="fixed series order" />
         <div className="h-64 px-2 pb-2">
           <ResponsiveContainer>
             <BarChart data={modelData}>
@@ -164,6 +179,8 @@ function TokensTab({ from, to, bucket }: { from: number; to: number; bucket: 'ho
                   dataKey={m}
                   stackId="m"
                   fill={SERIES_COLORS[i % SERIES_COLORS.length]}
+                  stroke="var(--saga-surface)"
+                  strokeWidth={1}
                   isAnimationActive={false}
                 />
               ))}
@@ -183,6 +200,8 @@ function TokensTab({ from, to, bucket }: { from: number; to: number; bucket: 'ho
                 dataKey="requests"
                 name="requests"
                 fill="var(--saga-ink-faint)"
+                fillOpacity={0.7}
+                radius={[3, 3, 0, 0]}
                 isAnimationActive={false}
               />
             </BarChart>
@@ -199,10 +218,15 @@ function LatencyTab({ from, to, bucket }: { from: number; to: number; bucket: 'h
     queryFn: () => api.latencySeries({ from, to, bucket }),
   });
 
-  if (q.isLoading) return <Skeleton className="h-72" />;
+  if (q.isLoading) return <ChartsSkeleton />;
   const series = q.data?.series ?? [];
   const sample = q.data?.sample ?? [];
-  if (series.length === 0) return <EmptyState title="No finished requests in this range" />;
+  if (series.length === 0)
+    return (
+      <EmptyState icon={<BarChart3 />} title="No finished requests in this range">
+        Latency series need at least one completed request in the window.
+      </EmptyState>
+    );
 
   return (
     <div className="grid gap-3 xl:grid-cols-2">
@@ -220,6 +244,7 @@ function LatencyTab({ from, to, bucket }: { from: number; to: number; bucket: 'h
                 dataKey="p95"
                 name="p95"
                 stroke="var(--saga-err)"
+                strokeWidth={1.5}
                 dot={false}
                 isAnimationActive={false}
               />
@@ -227,6 +252,7 @@ function LatencyTab({ from, to, bucket }: { from: number; to: number; bucket: 'h
                 dataKey="p50"
                 name="p50"
                 stroke="var(--saga-accent)"
+                strokeWidth={1.5}
                 dot={false}
                 isAnimationActive={false}
               />
@@ -234,6 +260,7 @@ function LatencyTab({ from, to, bucket }: { from: number; to: number; bucket: 'h
                 dataKey="avg"
                 name="avg"
                 stroke="var(--saga-info)"
+                strokeWidth={1.5}
                 dot={false}
                 isAnimationActive={false}
               />
@@ -254,7 +281,8 @@ function LatencyTab({ from, to, bucket }: { from: number; to: number; bucket: 'h
               <Line
                 dataKey="avgTtft"
                 name="avg ttft"
-                stroke="var(--saga-inferred)"
+                stroke="var(--saga-info)"
+                strokeWidth={1.5}
                 dot={false}
                 isAnimationActive={false}
               />
