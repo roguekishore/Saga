@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
-import { Area, AreaChart, ResponsiveContainer } from 'recharts';
 import { cn } from './cn';
 import { Card } from './primitives';
 
 /**
- * KPI cards rebuilt on our own primitives — Tremor is banned (pins React 18).
+ * KPI cards on our own primitives. The sparkline is hand-rolled SVG — a
+ * polyline needs no charting runtime, and keeping this package free of chart
+ * dependencies is what keeps charts out of the shell's initial chunk.
  */
 export function KpiCard({
   label,
@@ -41,7 +42,7 @@ export function KpiCard({
       </div>
       {sub ? <div className="mt-0.5 text-[11.5px] text-ink-dim">{sub}</div> : null}
       {spark && spark.length > 1 ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-9 opacity-50">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-9 opacity-60">
           <Sparkline data={spark} />
         </div>
       ) : null}
@@ -49,25 +50,43 @@ export function KpiCard({
   );
 }
 
-export function Sparkline({ data }: { data: Array<{ t: number; v: number }> }) {
+export function Sparkline({
+  data,
+  className,
+}: {
+  data: Array<{ t: number; v: number }>;
+  className?: string;
+}) {
+  if (data.length < 2) return null;
+  const w = 100;
+  const h = 32;
+  const vs = data.map((d) => d.v);
+  const min = Math.min(...vs);
+  const span = Math.max(...vs) - min || 1;
+  const pts = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - 2 - ((d.v - min) / span) * (h - 6);
+    return `${x.toFixed(2)} ${y.toFixed(2)}`;
+  });
+  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p}`).join(' ');
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id="saga-spark" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--saga-accent)" stopOpacity={0.5} />
-            <stop offset="100%" stopColor="var(--saga-accent)" stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <Area
-          type="monotone"
-          dataKey="v"
-          stroke="var(--saga-accent)"
-          strokeWidth={1.25}
-          fill="url(#saga-spark)"
-          isAnimationActive={false}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      preserveAspectRatio="none"
+      aria-hidden
+      className={cn('size-full', className)}
+    >
+      <path d={`${line} L${w} ${h} L0 ${h} Z`} fill="var(--saga-accent)" opacity={0.12} />
+      <path
+        d={line}
+        fill="none"
+        stroke="var(--saga-accent)"
+        strokeWidth={1.25}
+        vectorEffect="non-scaling-stroke"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        opacity={0.85}
+      />
+    </svg>
   );
 }
