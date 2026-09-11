@@ -3,6 +3,7 @@ import { lazy, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import { AppShell } from './shell/AppShell';
+import { RouteError } from './shell/RouteError';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import './index.css';
@@ -79,6 +80,10 @@ const SettingsPage = page(
   () => import('./pages/SettingsPage'),
   (m) => m.SettingsPage,
 );
+const NotFoundPage = page(
+  () => import('./pages/NotFoundPage'),
+  (m) => m.NotFoundPage,
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -89,24 +94,33 @@ const queryClient = new QueryClient({
 const router = createBrowserRouter([
   {
     element: <AppShell />,
+    // Shell-level catch: failures in the shell itself land here.
+    errorElement: <RouteError />,
     children: [
-      { path: '/', element: <OverviewPage /> },
-      { path: '/live', element: <LiveMonitorPage /> },
-      { path: '/requests/:id', element: <RequestInspectorPage /> },
-      { path: '/requests/:id/context', element: <ContextBreakdownPage /> },
-      { path: '/sessions', element: <SessionsPage /> },
-      { path: '/sessions/:id', element: <SessionDetailPage /> },
-      { path: '/search', element: <SearchPage /> },
-      { path: '/analytics', element: <AnalyticsPage /> },
-      { path: '/storage', element: <StoragePage /> },
-      { path: '/agents', element: <AgentsPage /> },
-      { path: '/tools', element: <ToolsPage /> },
-      { path: '/diff', element: <DiffPage /> },
-      { path: '/waterfall', element: <WaterfallPage /> },
-      { path: '/sql', element: <SqlPage /> },
-      { path: '/logs', element: <LogsPage /> },
-      { path: '/settings', element: <SettingsPage /> },
-      { path: '*', element: <OverviewPage /> },
+      {
+        // Pathless boundary: a page crash renders the error surface inside
+        // the shell, so navigation stays alive instead of the app blanking.
+        errorElement: <RouteError />,
+        children: [
+          { path: '/', element: <OverviewPage /> },
+          { path: '/live', element: <LiveMonitorPage /> },
+          { path: '/requests/:id', element: <RequestInspectorPage /> },
+          { path: '/requests/:id/context', element: <ContextBreakdownPage /> },
+          { path: '/sessions', element: <SessionsPage /> },
+          { path: '/sessions/:id', element: <SessionDetailPage /> },
+          { path: '/search', element: <SearchPage /> },
+          { path: '/analytics', element: <AnalyticsPage /> },
+          { path: '/storage', element: <StoragePage /> },
+          { path: '/agents', element: <AgentsPage /> },
+          { path: '/tools', element: <ToolsPage /> },
+          { path: '/diff', element: <DiffPage /> },
+          { path: '/waterfall', element: <WaterfallPage /> },
+          { path: '/sql', element: <SqlPage /> },
+          { path: '/logs', element: <LogsPage /> },
+          { path: '/settings', element: <SettingsPage /> },
+          { path: '*', element: <NotFoundPage /> },
+        ],
+      },
     ],
   },
 ]);
