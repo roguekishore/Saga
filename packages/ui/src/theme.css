@@ -1,58 +1,114 @@
 /*
- * SAGA design tokens. Dark-first control-room aesthetic; light theme flips
- * the same semantic slots. Provenance colors are part of the product's
- * honesty contract, not decoration:
- *   upstream-reported → green   (the provider said so)
- *   gateway-computed  → amber   (someone in the middle computed it)
- *   saga-estimated    → orange  (our own heuristic)
- *   inferred          → violet, dashed (structure SAGA guessed)
+ * SAGA design tokens. Chrome is neutral; hue is reserved for meaning.
+ * The provenance ramp is the product's honesty contract, not decoration:
+ *   upstream-reported → teal,  solid disc   (the provider said so)
+ *   gateway-computed  → lime,  hollow ring  (a middleman computed it)
+ *   saga-estimated    → rose,  diamond      (SAGA's own heuristic)
+ *   inferred          → violet, dashed      (structure SAGA guessed)
+ * Every ramp is CVD-validated per theme against its real surface — see
+ * DESIGN.md before touching any value here.
  */
 :root {
-  --saga-canvas: #f4f5f7;
+  color-scheme: light;
+
+  --saga-canvas: #f5f6f8;
   --saga-surface: #ffffff;
   --saga-raised: #eef0f3;
   --saga-overlay: #ffffff;
-  --saga-line: #dcdfe5;
-  --saga-line-strong: #c3c9d2;
-  --saga-ink: #16191d;
-  --saga-ink-dim: #5a6572;
-  --saga-ink-faint: #8b95a2;
-  --saga-accent: #b97f10;
+  --saga-line: #e3e6eb;
+  --saga-line-strong: #cbd1d9;
+  --saga-ink: #171a1f;
+  --saga-ink-dim: #4b5563;
+  --saga-ink-faint: #687080;
+
+  --saga-accent: #996516;
   --saga-accent-ink: #ffffff;
-  --saga-accent-soft: #f7ecd4;
-  --saga-ok: #178745;
-  --saga-err: #cf3f4f;
-  --saga-warn: #b97f10;
-  --saga-info: #2569c3;
-  --saga-prov-upstream: #178745;
-  --saga-prov-gateway: #b97f10;
-  --saga-prov-saga: #c2571d;
-  --saga-inferred: #7350c7;
-  --saga-thinking: #7350c7;
-  --saga-sel: #ececff;
+  --saga-accent-soft: #f3ead7;
+
+  --saga-ok: #056426;
+  --saga-err: #bd093f;
+  --saga-warn: #a2650a;
+  --saga-info: #1666aa;
+
+  --saga-prov-upstream: #079393;
+  --saga-prov-gateway: #829417;
+  --saga-prov-saga: #a5317c;
+  --saga-inferred: #573494;
+  --saga-thinking: #6d4cad;
+  --saga-sel: #e9eef8;
+
+  --saga-cat-1: #a97e2c;
+  --saga-cat-2: #067974;
+  --saga-cat-3: #5a3d96;
+  --saga-cat-4: #478d4b;
+  --saga-cat-5: #973069;
+  --saga-cat-6: #3275b4;
+
+  --saga-shadow-sm: 0 1px 2px rgb(23 26 31 / 0.05);
+  --saga-shadow: 0 1px 2px rgb(23 26 31 / 0.05), 0 4px 14px rgb(23 26 31 / 0.07);
+  --saga-shadow-lg: 0 2px 6px rgb(23 26 31 / 0.06), 0 12px 36px rgb(23 26 31 / 0.14);
+
+  /* motion — one scale for the whole product; see DESIGN.md */
+  --dur-1: 100ms;
+  --dur-2: 180ms;
+  --dur-3: 280ms;
+  --dur-4: 480ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 .dark {
-  --saga-canvas: #0b0d10;
-  --saga-surface: #11151a;
-  --saga-raised: #171c23;
-  --saga-overlay: #1a2028;
-  --saga-line: #232a33;
-  --saga-line-strong: #2f3844;
-  --saga-ink: #e6ebf2;
-  --saga-ink-dim: #96a1b0;
-  --saga-ink-faint: #5f6a78;
-  --saga-accent: #f0b43e;
-  --saga-accent-ink: #16191d;
-  --saga-accent-soft: #2a2415;
-  --saga-ok: #46c47c;
-  --saga-err: #f2707e;
-  --saga-warn: #f0b43e;
-  --saga-info: #62a5f2;
-  --saga-prov-upstream: #46c47c;
-  --saga-prov-gateway: #f0b43e;
-  --saga-prov-saga: #f28e52;
-  --saga-inferred: #a78bfa;
+  color-scheme: dark;
+
+  --saga-canvas: #0b0c0f;
+  --saga-surface: #12151b;
+  --saga-raised: #1a1f27;
+  --saga-overlay: #20262f;
+  --saga-line: #262c36;
+  --saga-line-strong: #333b47;
+  --saga-ink: #ecf0f6;
+  --saga-ink-dim: #a6b1c0;
+  --saga-ink-faint: #7e8b9c;
+
+  --saga-accent: #f0bb4b;
+  --saga-accent-ink: #1a1508;
+  --saga-accent-soft: #2a2312;
+
+  --saga-ok: #2e9e52;
+  --saga-err: #fa686a;
+  --saga-warn: #efb146;
+  --saga-info: #418ad1;
+
+  --saga-prov-upstream: #46d3c7;
+  --saga-prov-gateway: #ccee6e;
+  --saga-prov-saga: #ca5b9f;
+  --saga-inferred: #bea6fe;
   --saga-thinking: #a78bfa;
-  --saga-sel: #1d2433;
+  --saga-sel: #1c2534;
+
+  --saga-cat-1: #b8892d;
+  --saga-cat-2: #038a7f;
+  --saga-cat-3: #6a51a4;
+  --saga-cat-4: #54a058;
+  --saga-cat-5: #ab4a7d;
+  --saga-cat-6: #488acb;
+
+  --saga-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --saga-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.35);
+  --saga-shadow-lg: 0 2px 8px rgb(0 0 0 / 0.45), 0 16px 48px rgb(0 0 0 / 0.5);
+}
+
+/*
+ * Reduced motion is structural, not per-component: collapsing the duration
+ * scale to zero freezes every transition built on it. Infinite animations
+ * are additionally disabled where they are defined.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  .dark {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+    --dur-4: 0ms;
+  }
 }

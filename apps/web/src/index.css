@@ -28,8 +28,19 @@
   --color-inferred: var(--saga-inferred);
   --color-thinking: var(--saga-thinking);
   --color-sel: var(--saga-sel);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: ui-monospace, 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  --color-cat-1: var(--saga-cat-1);
+  --color-cat-2: var(--saga-cat-2);
+  --color-cat-3: var(--saga-cat-3);
+  --color-cat-4: var(--saga-cat-4);
+  --color-cat-5: var(--saga-cat-5);
+  --color-cat-6: var(--saga-cat-6);
+  --font-sans:
+    'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:
+    'Geist Mono Variable', ui-monospace, 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  --shadow-card: var(--saga-shadow-sm);
+  --shadow-pop: var(--saga-shadow);
+  --shadow-float: var(--saga-shadow-lg);
 }
 
 html,
@@ -42,11 +53,87 @@ body {
   @apply bg-canvas font-sans text-[13px] text-ink antialiased;
 }
 
+/*
+ * Focus is designed once, globally: a gold ring outside the element. No
+ * component may opt out with outline-none; anything focusable gets this for
+ * free, so a missed focus state is impossible rather than unlikely.
+ */
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--saga-accent) 85%, transparent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
 ::selection {
-  background: color-mix(in oklab, var(--saga-accent) 30%, transparent);
+  background: color-mix(in oklab, var(--saga-accent) 28%, transparent);
 }
 
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--saga-line-strong) transparent;
+}
+
+/* ------------------------------------------------------------ keyframes */
+
+@keyframes saga-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes saga-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes saga-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  to {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes saga-rise {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes saga-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

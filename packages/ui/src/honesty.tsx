@@ -1,5 +1,6 @@
 import type { AggUsage, BlockContext, Provenance, UsageValue } from '@saga/contracts';
 import { HelpCircle } from 'lucide-react';
+import { useId } from 'react';
 import { cn } from './cn';
 import { fmtTokens } from './format';
 import { Tip } from './primitives';
@@ -12,29 +13,86 @@ import {
 } from './provenance-meta';
 
 /**
- * The honesty components. These are the non-negotiable part of the design:
- * a number without provenance, or a heuristic presented as truth, is a bug.
+ * The honesty components. A number without provenance, or a heuristic
+ * presented as truth, is a bug — these are the only way numbers render.
+ *
+ * Provenance is double-encoded, color + shape, so it survives color-vision
+ * deficiency and grayscale print:
+ *   upstream-reported → teal solid disc     (the provider said so)
+ *   gateway-computed  → lime hollow ring    (a middleman computed it)
+ *   saga-estimated    → rose diamond        (SAGA's own heuristic)
+ *   mixed             → gradient disc       (aggregate of several sources)
+ *   inferred          → violet dashed ring  (structure SAGA guessed)
  */
 
-const TONE_DOT: Record<string, string> = {
-  upstream: 'bg-prov-upstream',
-  gateway: 'bg-prov-gateway',
-  saga: 'bg-prov-saga',
-  mixed: 'bg-gradient-to-r from-prov-upstream via-prov-gateway to-prov-saga',
-  none: 'bg-line-strong',
-};
+export type ProvenanceTone = 'upstream' | 'gateway' | 'saga' | 'mixed' | 'none' | 'inferred';
 
-export function ProvenanceDot({
+export function ProvenanceMark({
   tone,
   className,
 }: {
-  tone: 'upstream' | 'gateway' | 'saga' | 'mixed' | 'none';
+  tone: ProvenanceTone;
   className?: string;
 }) {
+  const gid = useId();
   return (
-    <span
-      className={cn('inline-block size-1.5 shrink-0 rounded-full', TONE_DOT[tone], className)}
-    />
+    <svg
+      viewBox="0 0 10 10"
+      aria-hidden
+      className={cn('inline-block size-[9px] shrink-0', className)}
+    >
+      {tone === 'upstream' ? <circle cx="5" cy="5" r="3.4" className="fill-prov-upstream" /> : null}
+      {tone === 'gateway' ? (
+        <circle
+          cx="5"
+          cy="5"
+          r="3"
+          fill="none"
+          strokeWidth="1.8"
+          className="stroke-prov-gateway"
+        />
+      ) : null}
+      {tone === 'saga' ? (
+        <path d="M5 1.1 L8.9 5 L5 8.9 L1.1 5 Z" className="fill-prov-saga" />
+      ) : null}
+      {tone === 'mixed' ? (
+        <>
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="var(--saga-prov-upstream)" />
+              <stop offset="50%" stopColor="var(--saga-prov-gateway)" />
+              <stop offset="100%" stopColor="var(--saga-prov-saga)" />
+            </linearGradient>
+          </defs>
+          <circle cx="5" cy="5" r="3.4" fill={`url(#${gid})`} />
+        </>
+      ) : null}
+      {tone === 'inferred' ? (
+        <circle
+          cx="5"
+          cy="5"
+          r="3"
+          fill="none"
+          strokeWidth="1.5"
+          strokeDasharray="2 1.7"
+          className="stroke-inferred"
+        />
+      ) : null}
+      {tone === 'none' ? <circle cx="5" cy="5" r="2.2" className="fill-line-strong" /> : null}
+    </svg>
+  );
+}
+
+/** Transitional alias — prefer ProvenanceMark. */
+export const ProvenanceDot = ProvenanceMark;
+
+/** Rich hover content for a provenance mark: what the claim is, verbatim. */
+function ProvCard({ title, explain }: { title: string; explain: string }) {
+  return (
+    <span className="block max-w-[300px]">
+      <b className="font-semibold">{title}</b>
+      <span className="mt-0.5 block text-ink-dim">{explain}</span>
+    </span>
   );
 }
 
@@ -51,17 +109,14 @@ export function TokenValue({
   if (usage == null) return <NaValue reason={naReason} className={className} />;
   const meta = PROVENANCE_META[usage.source];
   return (
-    <Tip
-      content={
-        <span>
-          <b className="font-semibold">{meta.label}</b> — {meta.explain}
-        </span>
-      }
-    >
+    <Tip content={<ProvCard title={meta.label} explain={meta.explain} />}>
       <span
-        className={cn('inline-flex items-center gap-1.5 tabular-nums cursor-default', className)}
+        className={cn(
+          'inline-flex cursor-default items-center gap-1.5 font-mono tabular-nums',
+          className,
+        )}
       >
-        <ProvenanceDot tone={meta.tone} />
+        <ProvenanceMark tone={meta.tone} />
         {fmtTokens(usage.value)}
       </span>
     </Tip>
@@ -83,15 +138,20 @@ export function AggValue({
   const d = describeSources(agg.sources);
   if (d.tone === 'none') return <NaValue reason={naReason ?? d.explain} className={className} />;
   return (
-    <Tip content={d.explain}>
+    <Tip content={<ProvCard title={d.short} explain={d.explain} />}>
       <span
-        className={cn('inline-flex items-center gap-1.5 tabular-nums cursor-default', className)}
+        className={cn(
+          'inline-flex cursor-default items-center gap-1.5 font-mono tabular-nums',
+          className,
+        )}
       >
-        <ProvenanceDot tone={d.tone} />
+        <ProvenanceMark tone={d.tone} />
         {render(agg.value)}
-        <span className="text-[10px] font-normal uppercase tracking-wide text-ink-faint">
-          {d.short}
-        </span>
+        {d.tone === 'mixed' ? (
+          <span className="text-[10px] font-sans font-normal uppercase tracking-wide text-ink-faint">
+            mixed
+          </span>
+        ) : null}
       </span>
     </Tip>
   );
@@ -125,7 +185,8 @@ export function InferredTag({
     <Tip content={explain}>
       <span
         className={cn(
-          'inline-flex cursor-default items-center rounded border border-dashed border-inferred/60 px-1 py-px text-[10px] font-medium leading-3.5 text-inferred',
+          'inline-flex cursor-default items-center rounded border border-dashed border-inferred/60',
+          'px-1 py-px text-[10px] font-medium leading-3.5 text-inferred',
           className,
         )}
       >
@@ -138,8 +199,8 @@ export function InferredTag({
 /**
  * The counterpart to `InferredTag`: a fact the client stated on the wire, or
  * read verbatim from its own files. Solid border against the inferred tag's
- * dashed one, so "evidence" and "guess" are distinguishable at a glance without
- * reading either label.
+ * dashed one, so "evidence" and "guess" are distinguishable at a glance
+ * without reading either label.
  *
  * Use it only where the claim really is wire-stated. A tag that says "stated"
  * over a heuristic is worse than no tag at all.
@@ -158,7 +219,9 @@ export function WireTag({
     <Tip content={explain}>
       <span
         className={cn(
-          'inline-flex cursor-default items-center rounded border border-solid border-prov-upstream/60 px-1 py-px text-[10px] font-medium leading-3.5 text-prov-upstream',
+          'inline-flex cursor-default items-center rounded border border-solid',
+          'border-prov-upstream/60 px-1 py-px text-[10px] font-medium leading-3.5',
+          'text-prov-upstream',
           className,
         )}
       >
@@ -168,28 +231,34 @@ export function WireTag({
   );
 }
 
-/** Provenance legend for page footers / overview. */
+/**
+ * Provenance legend — the trust spectrum, coolest claim to hottest guess.
+ * Every mark shape appears exactly as it renders next to real numbers.
+ */
 export function ProvenanceLegend({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-faint',
+        'flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-ink-faint',
         className,
       )}
     >
+      <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-ink-faint/80">
+        provenance
+      </span>
       {(Object.keys(PROVENANCE_META) as Provenance[]).map((p) => {
         const m = PROVENANCE_META[p];
         return (
           <Tip key={p} content={m.explain}>
             <span className="inline-flex cursor-default items-center gap-1.5">
-              <ProvenanceDot tone={m.tone} /> {m.label}
+              <ProvenanceMark tone={m.tone} /> {m.label}
             </span>
           </Tip>
         );
       })}
       <Tip content="Structure SAGA derived heuristically (sessions, workspace, agents, memory attribution).">
         <span className="inline-flex cursor-default items-center gap-1.5">
-          <span className="inline-block size-1.5 rounded-full border border-dashed border-inferred" />
+          <ProvenanceMark tone="inferred" />
           inferred structure
         </span>
       </Tip>
@@ -206,10 +275,10 @@ const BLOCK_TONE: Record<'you' | 'injected' | 'structural', string> = {
 
 /**
  * Per-block label: which part of a turn the human typed, and which parts the
- * client injected around it. The dashed border is the established "SAGA guessed
- * this" signal and applies here for the same reason it does elsewhere -- most of
- * these labels come from marker sniffing, including `your input`, which is
- * decided by the ABSENCE of a marker.
+ * client injected around it. The dashed border is the established "SAGA
+ * guessed this" signal and applies here for the same reason it does elsewhere
+ * — most of these labels come from marker sniffing, including `your input`,
+ * which is decided by the ABSENCE of a marker.
  */
 export function BlockContextTag({ ctx, className }: { ctx: BlockContext; className?: string }) {
   const meta = BLOCK_CONTEXT_META[ctx.kind];
@@ -230,7 +299,8 @@ export function BlockContextTag({ ctx, className }: { ctx: BlockContext; classNa
     >
       <span
         className={cn(
-          'inline-flex cursor-default items-center gap-1 rounded border px-1.5 py-px text-[10px] font-medium uppercase leading-4 tracking-[0.06em]',
+          'inline-flex cursor-default items-center gap-1 rounded border px-1.5 py-px',
+          'text-[10px] font-medium uppercase leading-4 tracking-[0.06em]',
           ctx.inferred ? 'border-dashed' : 'border-solid',
           BLOCK_TONE[meta.tone],
           className,
