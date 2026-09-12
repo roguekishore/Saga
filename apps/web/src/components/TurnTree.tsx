@@ -1,5 +1,15 @@
 import type { Exchange, TurnDetail } from '@saga/contracts';
-import { AggValue, Badge, cn, InferredTag, NaValue, ProvenanceMark, Sparkline, Tip, WireTag } from '@saga/ui';
+import {
+  AggValue,
+  Badge,
+  cn,
+  InferredTag,
+  NaValue,
+  ProvenanceMark,
+  Sparkline,
+  Tip,
+  WireTag,
+} from '@saga/ui';
 import { AlertTriangle, ChevronRight, Clock, Zap } from 'lucide-react';
 import { InjectionTags } from './InjectionTags';
 
@@ -32,7 +42,11 @@ function fmtDuration(ms: number): string {
 }
 
 function fmtTs(epochMs: number): string {
-  return new Date(epochMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return new Date(epochMs).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 // ---------------------------------------------------------------- seam status
@@ -41,9 +55,22 @@ const SEAM_PROPS: Record<
   Exchange['seamStatus'],
   { tone: React.ComponentProps<typeof Badge>['tone']; label: string; title: string }
 > = {
-  present:       { tone: 'ok',      label: 'seam ✓',   title: 'CONDUIT seam payload received; metrics are from the upstream side of the gateway.' },
-  pending:       { tone: 'warn',    label: 'seam …',   title: 'Door A — seam payload not yet arrived from CONDUIT. Metrics will upgrade when it lands.' },
-  'not-applicable': { tone: 'neutral', label: 'no seam', title: 'Gemini feed — no seam payload will ever arrive. Vertex bills GCP-side.' },
+  present: {
+    tone: 'ok',
+    label: 'seam ✓',
+    title: 'CONDUIT seam payload received; metrics are from the upstream side of the gateway.',
+  },
+  pending: {
+    tone: 'warn',
+    label: 'seam …',
+    title:
+      'Door A — seam payload not yet arrived from CONDUIT. Metrics will upgrade when it lands.',
+  },
+  'not-applicable': {
+    tone: 'neutral',
+    label: 'no seam',
+    title: 'Gemini feed — no seam payload will ever arrive. Vertex bills GCP-side.',
+  },
 };
 
 function SeamBadge({ status }: { status: Exchange['seamStatus'] }) {
@@ -51,7 +78,9 @@ function SeamBadge({ status }: { status: Exchange['seamStatus'] }) {
   return (
     <Tip content={p.title}>
       <span>
-        <Badge tone={p.tone} aria-label={`seam status: ${status}`}>{p.label}</Badge>
+        <Badge tone={p.tone} aria-label={`seam status: ${status}`}>
+          {p.label}
+        </Badge>
       </span>
     </Tip>
   );
@@ -80,7 +109,9 @@ function CallRoleBadge({
   return (
     <Tip content={`call role: ${label} — ${evidenceText}`}>
       <span className="inline-flex items-center gap-1">
-        <Badge tone="neutral" aria-label={`call role: ${label}`}>{label}</Badge>
+        <Badge tone="neutral" aria-label={`call role: ${label}`}>
+          {label}
+        </Badge>
         {source === 'inferred' ? (
           <InferredTag what="callRole" />
         ) : (
@@ -121,7 +152,9 @@ function ExchangeRow({ ex }: { ex: Exchange }) {
               <span className="font-medium text-ink">
                 [{harness} → {model}]
               </span>
-              {ex.status === 'upstream_error' || ex.status === 'client_aborted' || ex.status === 'capture_incomplete' ? (
+              {ex.status === 'upstream_error' ||
+              ex.status === 'client_aborted' ||
+              ex.status === 'capture_incomplete' ? (
                 <Badge tone="err">{ex.status.replace(/_/g, ' ')}</Badge>
               ) : ex.status === null ? (
                 <Badge tone="info">in flight</Badge>
@@ -140,7 +173,11 @@ function ExchangeRow({ ex }: { ex: Exchange }) {
             {ex.latencyMs != null ? (
               <span className="flex items-center gap-0.5">
                 <Clock className="size-3" aria-hidden />
-                <span aria-label={`latency: ${ex.latencyMs}ms`}>{fmtDuration(ex.latencyMs)}</span>
+                {/* role="img": a bare span has no role that supports aria-label,
+                    so the label was being dropped by assistive tech. */}
+                <span role="img" aria-label={`latency: ${ex.latencyMs}ms`}>
+                  {fmtDuration(ex.latencyMs)}
+                </span>
               </span>
             ) : (
               <NaValue reason="Latency not yet recorded — request in flight or metrics pending." />
@@ -163,19 +200,21 @@ function ExchangeRow({ ex }: { ex: Exchange }) {
           )}
 
           {/* token usage */}
-          <section
-            aria-label="token usage"
-            className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]"
-          >
+          <section aria-label="token usage" className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
             <span className="text-ink-faint">
               in:{' '}
               {ex.usage.input ? (
                 <span className="inline-flex items-center gap-1 font-mono">
-                  <ProvenanceMark tone={
-                    ex.usage.input.source === 'upstream-reported' ? 'upstream' :
-                    ex.usage.input.source === 'gateway-computed' ? 'gateway' : 'saga'
-                  } />
-                  <span aria-label={`input tokens: ${ex.usage.input.value}`}>
+                  <ProvenanceMark
+                    tone={
+                      ex.usage.input.source === 'upstream-reported'
+                        ? 'upstream'
+                        : ex.usage.input.source === 'gateway-computed'
+                          ? 'gateway'
+                          : 'saga'
+                    }
+                  />
+                  <span role="img" aria-label={`input tokens: ${ex.usage.input.value}`}>
                     {ex.usage.input.value.toLocaleString()}
                   </span>
                 </span>
@@ -187,11 +226,16 @@ function ExchangeRow({ ex }: { ex: Exchange }) {
               out:{' '}
               {ex.usage.output ? (
                 <span className="inline-flex items-center gap-1 font-mono">
-                  <ProvenanceMark tone={
-                    ex.usage.output.source === 'upstream-reported' ? 'upstream' :
-                    ex.usage.output.source === 'gateway-computed' ? 'gateway' : 'saga'
-                  } />
-                  <span aria-label={`output tokens: ${ex.usage.output.value}`}>
+                  <ProvenanceMark
+                    tone={
+                      ex.usage.output.source === 'upstream-reported'
+                        ? 'upstream'
+                        : ex.usage.output.source === 'gateway-computed'
+                          ? 'gateway'
+                          : 'saga'
+                    }
+                  />
+                  <span role="img" aria-label={`output tokens: ${ex.usage.output.value}`}>
                     {ex.usage.output.value.toLocaleString()}
                   </span>
                 </span>
@@ -256,7 +300,7 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
   // boundarySource drives the left border: dashed = inferred, solid = harness-declared
   const borderClass =
     turn.boundarySource === 'harness-declared'
-      ? 'border-l-2 border-l-prov-upstream/60'   // solid — wire truth
+      ? 'border-l-2 border-l-prov-upstream/60' // solid — wire truth
       : 'border-l-2 border-l-inferred/60 [border-left-style:dashed]'; // dashed — SAGA guess
 
   // Sparkline: contextUsageReadings are ordered percentages that climb across the turn
@@ -275,7 +319,6 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
             '[&::-webkit-details-marker]:hidden',
             borderClass,
           )}
-          aria-expanded="false"
         >
           {/* expand chevron */}
           <ChevronRight
@@ -293,7 +336,10 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
 
               {/* partial badge — must not look like a short complete turn */}
               {turn.partial ? (
-                <Badge tone="warn" aria-label="capture began mid-loop — this turn is genuinely incomplete">
+                <Badge
+                  tone="warn"
+                  aria-label="capture began mid-loop — this turn is genuinely incomplete"
+                >
                   <AlertTriangle className="size-3" aria-hidden />
                   capture began mid-loop
                 </Badge>
@@ -301,11 +347,16 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
 
               {/* open turn */}
               {turn.endedAt === null ? (
-                <Badge tone="info" aria-label="turn still open">in progress</Badge>
+                <Badge tone="info" aria-label="turn still open">
+                  in progress
+                </Badge>
               ) : null}
 
               {turn.errors > 0 ? (
-                <Badge tone="err" aria-label={`${turn.errors} error${turn.errors === 1 ? '' : 's'} in this turn`}>
+                <Badge
+                  tone="err"
+                  aria-label={`${turn.errors} error${turn.errors === 1 ? '' : 's'} in this turn`}
+                >
                   {turn.errors} err
                 </Badge>
               ) : null}
@@ -323,17 +374,23 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
               <span className="flex items-center gap-1">
                 <Clock className="size-3 shrink-0 text-ink-faint" aria-hidden />
                 {turn.spanMs != null ? (
-                  <span aria-label={`turn duration: ${fmtDuration(turn.spanMs)}`}>
+                  <span role="img" aria-label={`turn duration: ${fmtDuration(turn.spanMs)}`}>
                     {fmtDuration(turn.spanMs)}
                   </span>
                 ) : (
                   <NaValue reason="Turn not yet closed; duration unknown." />
                 )}
               </span>
-              <span aria-label={`${turn.requestCount} round-trips`}>
+              {/* No aria-label: the visible text already reads "3 round-trips",
+                  so labeling it would only duplicate what is announced. */}
+              <span>
                 {turn.requestCount} round-trip{turn.requestCount === 1 ? '' : 's'}
               </span>
-              <span className="font-mono text-[10.5px] text-ink-faint" aria-label={`started at ${fmtTs(turn.startedAt)}`}>
+              <span
+                className="font-mono text-[10.5px] text-ink-faint"
+                role="img"
+                aria-label={`started at ${fmtTs(turn.startedAt)}`}
+              >
                 {fmtTs(turn.startedAt)}
               </span>
             </div>
@@ -341,10 +398,18 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
             {/* token aggregates */}
             <div className="flex flex-wrap gap-3 text-[11px]">
               <span className="flex items-center gap-1 text-ink-faint">
-                in: <AggValue agg={turn.inputTokens} naReason="No input tokens recorded for this turn." />
+                in:{' '}
+                <AggValue
+                  agg={turn.inputTokens}
+                  naReason="No input tokens recorded for this turn."
+                />
               </span>
               <span className="flex items-center gap-1 text-ink-faint">
-                out: <AggValue agg={turn.outputTokens} naReason="No output tokens recorded for this turn." />
+                out:{' '}
+                <AggValue
+                  agg={turn.outputTokens}
+                  naReason="No output tokens recorded for this turn."
+                />
               </span>
               {turn.thoughtTokens.value > 0 ? (
                 <span className="flex items-center gap-1 text-ink-faint">
@@ -364,7 +429,14 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
 
           {/* context-usage sparkline — the agentic loop made visible */}
           {hasContextClimb ? (
-            <div className="shrink-0" aria-label={`context usage: ${turn.contextUsageReadings[0]?.toFixed(0)}% → ${turn.contextUsageReadings.at(-1)?.toFixed(0)}% across ${turn.contextUsageReadings.length} exchanges`}>
+            <div
+              className="shrink-0"
+              // role="img" is the honest role for a sparkline: it is a graphic
+              // whose meaning lives entirely in the label, and a bare div supports
+              // no aria-label at all.
+              role="img"
+              aria-label={`context usage: ${turn.contextUsageReadings[0]?.toFixed(0)}% → ${turn.contextUsageReadings.at(-1)?.toFixed(0)}% across ${turn.contextUsageReadings.length} exchanges`}
+            >
               <div className="text-[9.5px] uppercase tracking-[0.1em] text-ink-faint mb-0.5 text-right">
                 ctx climb
               </div>
@@ -397,9 +469,12 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
                 )}
               </div>
               <ul className="space-y-0.5">
-                {turn.evidence.map((e, i) => (
+                {/* Keyed on the evidence text, not the array index: each entry is a
+                    distinct marker or reason, so a duplicate would itself be a bug
+                    worth surfacing rather than papering over with a positional key. */}
+                {turn.evidence.map((e) => (
                   <li
-                    key={i}
+                    key={e}
                     className={cn(
                       'flex items-start gap-2 text-[11.5px] text-ink-dim',
                       turn.boundarySource === 'inferred'
@@ -416,14 +491,13 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
 
           {/* exchanges */}
           {exchanges.length > 0 ? (
-            <section aria-label={`${exchanges.length} exchange${exchanges.length === 1 ? '' : 's'}`}>
+            <section
+              aria-label={`${exchanges.length} exchange${exchanges.length === 1 ? '' : 's'}`}
+            >
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
                 exchanges ({exchanges.length})
               </div>
-              <ul
-                role="list"
-                className="rounded-md border border-line divide-y divide-line overflow-hidden bg-canvas/60"
-              >
+              <ul className="rounded-md border border-line divide-y divide-line overflow-hidden bg-canvas/60">
                 {exchanges.map((ex) => (
                   <ExchangeRow key={ex.requestId} ex={ex} />
                 ))}
@@ -442,9 +516,7 @@ function TurnRow({ detail }: { detail: TurnDetail }) {
 
 export function TurnTree({ details }: { details: TurnDetail[] }): React.ReactElement {
   if (details.length === 0) {
-    return (
-      <p className="py-8 text-center text-[13px] text-ink-faint">No turns recorded yet.</p>
-    );
+    return <p className="py-8 text-center text-[13px] text-ink-faint">No turns recorded yet.</p>;
   }
 
   return (

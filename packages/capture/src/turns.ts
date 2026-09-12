@@ -38,13 +38,9 @@ export interface TurnClassification {
  * Is this request a fresh human instruction, or another round-trip of a loop an
  * earlier instruction started?
  *
- * ===========================================================================
- * TODO(C3): implement. Returns `unknown`/`inferred` until then, which is a
- * WORKING state — the correlator degrades to one open turn per session rather
- * than crashing or inventing boundaries.
- * ===========================================================================
- *
- * C3, three things the spec establishes and this signature exists to serve:
+ * Implemented. The three rules below are the invariants this function maintains,
+ * not background reading — a change that breaks one is a regression even if every
+ * test still passes, because each protects a distinction the UI depends on:
  *
  * 1. PREFER EVIDENCE. Codex DECLARES `client_metadata.turn_id`, so grouping is
  *    exact for that harness — return `source: 'harness-declared'` and the id.

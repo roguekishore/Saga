@@ -9,11 +9,7 @@ function frame(eventType: string, data: Record<string, unknown>): SseFrame {
   return { event: eventType, data: JSON.stringify(json), json };
 }
 
-const ctx = (
-  body: unknown,
-  headers: Record<string, string> = {},
-  path = '/v1/responses',
-) => ({
+const ctx = (body: unknown, headers: Record<string, string> = {}, path = '/v1/responses') => ({
   method: 'POST',
   path,
   headers,
@@ -142,9 +138,7 @@ describe('normalizeRequest() — session identity', () => {
 
 describe('normalizeRequest() — routingTier', () => {
   test('surfaces service_tier: priority', () => {
-    const r = adapter.normalizeRequest(
-      ctx({ model: 'm', input: [], service_tier: 'priority' }),
-    );
+    const r = adapter.normalizeRequest(ctx({ model: 'm', input: [], service_tier: 'priority' }));
     expect(r.routingTier).toBe('priority');
   });
 
@@ -321,8 +315,7 @@ describe('normalizeRequest() — injection tags', () => {
           {
             type: 'message',
             role: 'user',
-            content:
-              '<user_instructions>Always answer in English.</user_instructions>\nHello',
+            content: '<user_instructions>Always answer in English.</user_instructions>\nHello',
           },
         ],
       }),
@@ -396,10 +389,7 @@ describe('normalizeRequest() — injection tags', () => {
     const r = adapter.normalizeRequest(
       ctx({
         model: 'm',
-        input: [
-          { type: 'message', role: 'user', content: 'hi' },
-          { type: 'compaction' },
-        ],
+        input: [{ type: 'message', role: 'user', content: 'hi' }, { type: 'compaction' }],
       }),
     );
 
@@ -409,10 +399,7 @@ describe('normalizeRequest() — injection tags', () => {
 
   test('detects responses_lite_prefix from header', () => {
     const r = adapter.normalizeRequest(
-      ctx(
-        { model: 'm', input: [] },
-        { 'x-openai-internal-codex-responses-lite': 'true' },
-      ),
+      ctx({ model: 'm', input: [] }, { 'x-openai-internal-codex-responses-lite': 'true' }),
     );
 
     const tag = r.injections?.find((t) => t.type === 'responses_lite_prefix');

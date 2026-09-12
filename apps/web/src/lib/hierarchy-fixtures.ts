@@ -106,8 +106,11 @@ function makeExchange(
     callRoleSource: roleSource,
     callRoleEvidence:
       roleSource === 'inferred'
-        ? ['No explicit role header; inferred from prompt shape', 'Tool-use pattern matches utility call']
-        : ['x-saga-call-role header: ' + role],
+        ? [
+            'No explicit role header; inferred from prompt shape',
+            'Tool-use pattern matches utility call',
+          ]
+        : [`x-saga-call-role header: ${role}`],
     routingTier: 'tier-2',
     status: seq === 29 ? 'upstream_error' : 'ok',
     latencyMs: 900 + seq * 12,
@@ -129,16 +132,13 @@ function makeExchange(
     credits: seq % 4 === 0 ? null : 0.03 + seq * 0.002,
     contextUsagePercentage: ctxPct,
     stopReason: seq === 29 ? 'max_tokens' : 'tool_use',
-    metricsSource: door === 'B' ? 'gemini-native' : seamStatus === 'pending' ? null : 'conduit-seam',
+    metricsSource:
+      door === 'B' ? 'gemini-native' : seamStatus === 'pending' ? null : 'conduit-seam',
     seamStatus,
     replyPreview:
-      seq === 29
-        ? null
-        : `Step ${seq + 1}: Calling tool to read file at path/to/module_${seq}.ts`,
+      seq === 29 ? null : `Step ${seq + 1}: Calling tool to read file at path/to/module_${seq}.ts`,
     toolCalls:
-      seq < 28
-        ? [{ toolUseId: `tu-${seq}`, name: seq % 2 === 0 ? 'read_file' : 'bash' }]
-        : [],
+      seq < 28 ? [{ toolUseId: `tu-${seq}`, name: seq % 2 === 0 ? 'read_file' : 'bash' }] : [],
     injections,
   };
 }

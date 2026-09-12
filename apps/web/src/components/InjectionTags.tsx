@@ -1,5 +1,5 @@
 import type { InjectionTag } from '@saga/contracts';
-import { Badge, cn, Tip } from '@saga/ui';
+import { cn, Tip } from '@saga/ui';
 import { Eye, Radio } from 'lucide-react';
 
 /**
@@ -26,6 +26,10 @@ function SourcePip({ source }: { source: InjectionTag['source'] }) {
     return (
       <Tip content="SAGA observed this injection on the wire before it reached the upstream. Direct evidence.">
         <span
+          // A bare span has no role that supports aria-label. `img` does, and it
+          // also makes the announced name the full "saga-observed" rather than the
+          // terse visible "saga".
+          role="img"
           aria-label="saga-observed"
           className={cn(
             'inline-flex items-center gap-0.5',
@@ -49,6 +53,7 @@ function SourcePip({ source }: { source: InjectionTag['source'] }) {
   return (
     <Tip content="CONDUIT declared this injection. SAGA sits on the wrong side of the gateway rewrite and cannot verify it directly — this is what CONDUIT reported adding.">
       <span
+        role="img"
         aria-label="conduit-declared"
         className={cn(
           'inline-flex items-center gap-0.5',
@@ -96,9 +101,7 @@ function EnvContextDiffCallout({ tag }: { tag: InjectionTag }) {
         {tag.location ? (
           <span className="ml-1.5 font-mono text-[10.5px] text-ink-faint">@ {tag.location}</span>
         ) : null}
-        {tag.detail ? (
-          <p className="mt-1 text-[10.5px] text-ink-faint">{tag.detail}</p>
-        ) : null}
+        {tag.detail ? <p className="mt-1 text-[10.5px] text-ink-faint">{tag.detail}</p> : null}
         <div className="mt-1">
           <SourcePip source={tag.source} />
         </div>
@@ -139,9 +142,7 @@ function InjectionChip({ tag }: { tag: InjectionTag }) {
           <Radio className="size-3 shrink-0 text-inferred" aria-hidden />
         )}
         <span className="truncate font-mono">{tag.type}</span>
-        {tag.location ? (
-          <span className="shrink-0 text-ink-faint">@ {tag.location}</span>
-        ) : null}
+        {tag.location ? <span className="shrink-0 text-ink-faint">@ {tag.location}</span> : null}
         <SourcePip source={tag.source} />
       </li>
     </Tip>

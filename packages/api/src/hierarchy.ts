@@ -64,7 +64,7 @@ function parseCtxReadings(csv: unknown): number[] {
   if (typeof csv !== 'string' || csv.length === 0) return [];
   return csv.split(',').flatMap((s) => {
     const n = Number(s.trim());
-    return isNaN(n) ? [] : [n];
+    return Number.isNaN(n) ? [] : [n];
   });
 }
 
@@ -264,9 +264,7 @@ export function listSessionTurns(
   const hasMore = rows.length > limit;
   const lastSeq = page.at(-1)?.seq;
   const nextCursor =
-    hasMore && lastSeq != null
-      ? Buffer.from(String(lastSeq), 'utf-8').toString('base64url')
-      : null;
+    hasMore && lastSeq != null ? Buffer.from(String(lastSeq), 'utf-8').toString('base64url') : null;
 
   return {
     sessionId,
@@ -330,9 +328,7 @@ export function getTurnDetail(db: Driver, turnId: string): TurnDetail | null {
       model: (r.model as string | null) ?? null,
       callRole: safeCallRole(r.call_role),
       callRoleSource: safeCallRoleSource(r.call_role_source),
-      callRoleEvidence: JSON.parse(
-        String(r.call_role_evidence_json ?? '[]'),
-      ) as string[],
+      callRoleEvidence: JSON.parse(String(r.call_role_evidence_json ?? '[]')) as string[],
       routingTier: (r.routing_tier as string | null) ?? null,
       status: (r.status as Exchange['status']) ?? null,
       latencyMs: (r.latency_ms as number | null) ?? null,

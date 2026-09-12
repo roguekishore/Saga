@@ -110,7 +110,12 @@ function geminiPartsToBlocks(parts: unknown[]): ContentBlock[] {
         isError: false,
         content:
           resp !== undefined
-            ? [{ type: 'text', text: safeStringify(resp) } as Extract<ContentBlock, { type: 'text' }>]
+            ? [
+                { type: 'text', text: safeStringify(resp) } as Extract<
+                  ContentBlock,
+                  { type: 'text' }
+                >,
+              ]
             : [],
       });
     } else if (rec.inlineData !== undefined) {
@@ -218,12 +223,11 @@ function normalizeRequest(ctx: AdapterRequestContext): NormalizedRequest {
   const routingTier: string | null =
     requestType && sharedType
       ? `${requestType}/${sharedType}`
-      : requestType ?? sharedType ?? null;
+      : (requestType ?? sharedType ?? null);
 
   // syntheticSessionKey: install-scoped machine id; NOT a session id.
   // Return it so the capture layer can use it as a coarse partition key.
-  const syntheticSessionKey =
-    getHeader(ctx.headers, 'x-gemini-api-privileged-user-id') ?? null;
+  const syntheticSessionKey = getHeader(ctx.headers, 'x-gemini-api-privileged-user-id') ?? null;
 
   // ---- Injection detection -----------------------------------------------
   // Tags SAGA can observe on the front door, before any gateway.
@@ -237,9 +241,7 @@ function normalizeRequest(ctx: AdapterRequestContext): NormalizedRequest {
   const firstContent = asRecord(rawContents[0]);
   if (firstContent && asString(firstContent.role) !== 'model') {
     const firstParts: unknown[] = Array.isArray(firstContent.parts) ? firstContent.parts : [];
-    const firstText = firstParts
-      .map((p) => asString(asRecord(p)?.text) ?? '')
-      .join('');
+    const firstText = firstParts.map((p) => asString(asRecord(p)?.text) ?? '').join('');
     if (firstText.includes('<session_context>')) {
       injections.push({ type: 'session_context', location: 'contents[0]', detail: null });
       // folder_tree is gated on getIncludeDirectoryTree(); its marker nests inside session_context.
@@ -363,12 +365,10 @@ class GeminiObserver implements StreamObserver {
     // usageMetadata — overwrite on every frame; the last one is cumulative.
     const um = asRecord(j.usageMetadata);
     if (um) {
-      if (typeof um.promptTokenCount === 'number')
-        this.promptTokenCount = um.promptTokenCount;
+      if (typeof um.promptTokenCount === 'number') this.promptTokenCount = um.promptTokenCount;
       if (typeof um.candidatesTokenCount === 'number')
         this.candidatesTokenCount = um.candidatesTokenCount;
-      if (typeof um.totalTokenCount === 'number')
-        this.totalTokenCount = um.totalTokenCount;
+      if (typeof um.totalTokenCount === 'number') this.totalTokenCount = um.totalTokenCount;
       if (typeof um.cachedContentTokenCount === 'number')
         this.cachedContentTokenCount = um.cachedContentTokenCount;
       if (typeof um.thoughtsTokenCount === 'number')
@@ -439,8 +439,20 @@ class GeminiObserver implements StreamObserver {
     return this.sawContent;
   }
 
-  outputTokensSoFar(): UsageValue | null {
-    return this.uv(this.candidatesTokenCount);
+  /**
+   * Narrowed to the two wire-provenance values on purpose, matching
+   * `StreamObserver` and the sibling adapters.
+   *
+   * An observer reads numbers off the wire, so it can never legitimately report
+   * `saga-estimated` — that value exists for figures SAGA derived itself. The
+   * runtime value was already correct here (`usageSource` is narrow by
+   * construction); only the declared type was wide enough to promise otherwise.
+   * Widening the interface instead would have weakened a provenance guarantee to
+   * fit a signature.
+   */
+  outputTokensSoFar(): { value: number; source: 'upstream-reported' | 'gateway-computed' } | null {
+    const v = this.uv(this.candidatesTokenCount);
+    return v ? { value: v.value, source: this.usageSource } : null;
   }
 
   /**
@@ -560,7 +572,9 @@ export function geminiAdapter(opts: AdapterOptions): Adapter {
       // Path must contain the Vertex publishers/google/models colon-method form.
       // Matches both :streamGenerateContent and :generateContent; excludes door-A
       // v1internal and the generativelanguage.googleapis.com AI-Studio path.
-      const isVertexPath = /\/publishers\/google\/models\/[^/:]+:(?:stream)?generateContent/i.test(path);
+      const isVertexPath = /\/publishers\/google\/models\/[^/:]+:(?:stream)?generateContent/i.test(
+        path,
+      );
       if (!isVertexPath) return false;
 
       // At least one of: API key header OR Gemini User-Agent.

@@ -9,11 +9,7 @@ const adapter = geminiAdapter(opts);
 // Context builders
 // ---------------------------------------------------------------------------
 
-function ctx(
-  path: string,
-  body: unknown,
-  headers: Record<string, string> = {},
-) {
+function ctx(path: string, body: unknown, headers: Record<string, string> = {}) {
   return { method: 'POST', path, headers, body };
 }
 
@@ -36,21 +32,15 @@ function frame(json: Record<string, unknown>): SseFrame {
 
 describe('gemini matches()', () => {
   test('accepts Vertex URL with x-goog-api-key', () => {
-    expect(
-      adapter.matches(
-        ctx(VERTEX_PATH, null, { 'x-goog-api-key': 'key' }),
-      ),
-    ).toBe(true);
+    expect(adapter.matches(ctx(VERTEX_PATH, null, { 'x-goog-api-key': 'key' }))).toBe(true);
   });
 
   test('accepts Vertex URL with GeminiCLI User-Agent (no api-key header)', () => {
     expect(
       adapter.matches(
-        ctx(
-          VERTEX_PATH,
-          null,
-          { 'user-agent': 'GeminiCLI/1.2.3/gemini-2.0-flash (linux; x64; cli)' },
-        ),
+        ctx(VERTEX_PATH, null, {
+          'user-agent': 'GeminiCLI/1.2.3/gemini-2.0-flash (linux; x64; cli)',
+        }),
       ),
     ).toBe(true);
   });
@@ -58,11 +48,9 @@ describe('gemini matches()', () => {
   test('accepts VS Code variant via proxy_client=geminicli', () => {
     expect(
       adapter.matches(
-        ctx(
-          VERTEX_PATH,
-          null,
-          { 'user-agent': 'CloudCodeVSCode/1.0 (aidev_client; proxy_client=geminicli)' },
-        ),
+        ctx(VERTEX_PATH, null, {
+          'user-agent': 'CloudCodeVSCode/1.0 (aidev_client; proxy_client=geminicli)',
+        }),
       ),
     ).toBe(true);
   });
@@ -70,56 +58,42 @@ describe('gemini matches()', () => {
   test('accepts unary (non-stream) Vertex path', () => {
     expect(
       adapter.matches(
-        ctx(
-          '/v1beta1/publishers/google/models/gemini-pro:generateContent',
-          null,
-          { 'x-goog-api-key': 'key' },
-        ),
+        ctx('/v1beta1/publishers/google/models/gemini-pro:generateContent', null, {
+          'x-goog-api-key': 'key',
+        }),
       ),
     ).toBe(true);
   });
 
   test('rejects Anthropic path', () => {
-    expect(
-      adapter.matches(ctx('/v1/messages', null, { 'x-goog-api-key': 'key' })),
-    ).toBe(false);
+    expect(adapter.matches(ctx('/v1/messages', null, { 'x-goog-api-key': 'key' }))).toBe(false);
   });
 
   test('rejects OpenAI path', () => {
-    expect(
-      adapter.matches(ctx('/v1/chat/completions', null, { 'x-goog-api-key': 'key' })),
-    ).toBe(false);
+    expect(adapter.matches(ctx('/v1/chat/completions', null, { 'x-goog-api-key': 'key' }))).toBe(
+      false,
+    );
   });
 
   test('rejects Codex /responses path', () => {
-    expect(
-      adapter.matches(ctx('/v1/responses', null, { 'x-goog-api-key': 'key' })),
-    ).toBe(false);
+    expect(adapter.matches(ctx('/v1/responses', null, { 'x-goog-api-key': 'key' }))).toBe(false);
   });
 
   test('rejects door-A v1internal path (colon-method but wrong prefix)', () => {
     // Door A: cloudcode-pa.googleapis.com/v1internal:streamGenerateContent
     // SAGA would only see the path portion.
     expect(
-      adapter.matches(
-        ctx('/v1internal:streamGenerateContent', null, { 'x-goog-api-key': 'key' }),
-      ),
+      adapter.matches(ctx('/v1internal:streamGenerateContent', null, { 'x-goog-api-key': 'key' })),
     ).toBe(false);
   });
 
   test('rejects Vertex path with no auth signal', () => {
     // path is correct but no api-key and no Gemini UA
-    expect(
-      adapter.matches(ctx(VERTEX_PATH, null, {})),
-    ).toBe(false);
+    expect(adapter.matches(ctx(VERTEX_PATH, null, {}))).toBe(false);
   });
 
   test('case-insensitive header name for x-goog-api-key', () => {
-    expect(
-      adapter.matches(
-        ctx(VERTEX_PATH, null, { 'X-Goog-Api-Key': 'key' }),
-      ),
-    ).toBe(true);
+    expect(adapter.matches(ctx(VERTEX_PATH, null, { 'X-Goog-Api-Key': 'key' }))).toBe(true);
   });
 });
 
@@ -267,7 +241,10 @@ describe('gemini normalizeRequest()', () => {
               {
                 name: 'write_file',
                 description: 'write a file',
-                parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } } },
+                parameters: {
+                  type: 'object',
+                  properties: { path: { type: 'string' }, content: { type: 'string' } },
+                },
               },
             ],
           },
@@ -663,7 +640,9 @@ describe('GeminiObserver finalize()', () => {
   test('frameStats counts frames and bytes correctly', () => {
     const o = adapter.createObserver();
     const f1 = frame({ candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }] });
-    const f2 = frame({ usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 } });
+    const f2 = frame({
+      usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 },
+    });
     o.onFrame(f1);
     o.onFrame(f2);
     const r = o.finalize('complete');

@@ -23,8 +23,9 @@ export function HierarchyPage(): React.ReactElement {
         <p className="max-w-2xl text-[13px] leading-5 text-ink-dim">
           For each human message, the stream of back-and-forth it caused — and exactly what was
           injected into each step. A turn is the unit a human recognises as{' '}
-          <em>"the thing I asked for"</em>; <code className="font-mono text-[12px]">requestCount</code>{' '}
-          is how many round-trips it actually took.
+          <em>"the thing I asked for"</em>;{' '}
+          <code className="font-mono text-[12px]">requestCount</code> is how many round-trips it
+          actually took.
         </p>
         <p className="text-[11.5px] text-ink-faint">
           Rendered from fixtures — backend not required.
@@ -36,17 +37,17 @@ export function HierarchyPage(): React.ReactElement {
         <ProvenanceLegend />
         <p className="mt-1.5 text-[10.5px] text-ink-faint">
           <strong className="font-semibold text-ink-dim">Dashed</strong> = SAGA inferred (turn
-          boundary, call role, session edge). Solid = stated on the wire. The distinction is
-          always visible without hovering.
+          boundary, call role, session edge). Solid = stated on the wire. The distinction is always
+          visible without hovering.
         </p>
       </div>
 
       {/* --------------------------------------------------- fixture notice */}
       <div className="rounded-md border border-line-strong/60 bg-canvas px-3 py-2 text-[11.5px] text-ink-dim">
-        <span className="mr-1 font-semibold">Fixture states covered:</span>
-        1 exchange · 30-exchange loop · open turn (endedAt null) · partial turn (capture began
-        mid-loop) · mixed provenance · pending seam · not-applicable seam · all callRole values ·
-        both injection sources · environment_context:diff callout · null credits (n/a, not 0)
+        <span className="mr-1 font-semibold">Fixture states covered:</span>1 exchange · 30-exchange
+        loop · open turn (endedAt null) · partial turn (capture began mid-loop) · mixed provenance ·
+        pending seam · not-applicable seam · all callRole values · both injection sources ·
+        environment_context:diff callout · null credits (n/a, not 0)
       </div>
 
       {/* ------------------------------------------------------ turn tree */}

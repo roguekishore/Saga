@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { classifyTurn, TurnCorrelator } from '../src/turns';
 import type { NormalizedRequest } from '@saga/contracts';
+import { classifyTurn, TurnCorrelator } from '../src/turns';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -57,7 +57,12 @@ describe('classifyTurn — Codex (harness-declared)', () => {
   test('declared turn_id with user_instructions injection → human_turn, harness-declared', () => {
     const result = classifyTurn({
       request: req({
-        harnessIdentity: { sessionId: 'ses_abc', threadId: null, turnId: 'turn_42', parentTurnId: null },
+        harnessIdentity: {
+          sessionId: 'ses_abc',
+          threadId: null,
+          turnId: 'turn_42',
+          parentTurnId: null,
+        },
         injections: [{ type: 'user_instructions', location: null, detail: null }],
       }),
       headers: {},
@@ -75,7 +80,12 @@ describe('classifyTurn — Codex (harness-declared)', () => {
   test('declared turn_id without user_instructions → tool_continuation, harness-declared', () => {
     const result = classifyTurn({
       request: req({
-        harnessIdentity: { sessionId: 'ses_abc', threadId: null, turnId: 'turn_42', parentTurnId: null },
+        harnessIdentity: {
+          sessionId: 'ses_abc',
+          threadId: null,
+          turnId: 'turn_42',
+          parentTurnId: null,
+        },
         injections: [{ type: 'environment_context', location: 'diff', detail: null }],
       }),
       headers: {},
@@ -244,12 +254,22 @@ describe('TurnCorrelator', () => {
     const cont1 = c.assign({
       ...base,
       ts: 100,
-      classification: { kind: 'tool_continuation', source: 'inferred', harnessTurnId: null, evidence: [] },
+      classification: {
+        kind: 'tool_continuation',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: [],
+      },
     });
     const cont2 = c.assign({
       ...base,
       ts: 200,
-      classification: { kind: 'tool_continuation', source: 'inferred', harnessTurnId: null, evidence: [] },
+      classification: {
+        kind: 'tool_continuation',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: [],
+      },
     });
 
     expect(cont1.turnId).toBe(open.turnId);
@@ -303,7 +323,12 @@ describe('TurnCorrelator', () => {
     const result = c.assign({
       sessionId: 'ses_mid',
       ts: 0,
-      classification: { kind: 'tool_continuation', source: 'inferred', harnessTurnId: null, evidence: [] },
+      classification: {
+        kind: 'tool_continuation',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: [],
+      },
     });
 
     expect(result.partial).toBe(true);

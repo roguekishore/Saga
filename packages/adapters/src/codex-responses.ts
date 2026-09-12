@@ -234,17 +234,21 @@ function inputItemsToMessages(input: unknown[]): NormalizedMessage[] {
         const name = asString(item.name) ?? '';
         // arguments is a JSON-encoded string per FINDINGS §1.5
         const argsRaw = asString(item.arguments) ?? 'null';
-        let input: unknown = null;
+        // NOT named `input`: that shadows the outer `input[]` items array, and the
+        // shadowed name was being passed to `structuralContextSource` as the item
+        // COUNT — so a tool call's context source was decided by the length of its
+        // parsed arguments rather than by its position in the request.
+        let toolInput: unknown = null;
         try {
-          input = JSON.parse(argsRaw);
+          toolInput = JSON.parse(argsRaw);
         } catch {
-          input = null;
+          toolInput = null;
         }
         const block: ContentBlock = {
           type: 'tool_use',
           id: callId,
           name,
-          input,
+          input: toolInput,
           inputJson: argsRaw,
         };
         messages.push({
@@ -259,7 +263,8 @@ function inputItemsToMessages(input: unknown[]): NormalizedMessage[] {
       case 'function_call_output': {
         // TOP-LEVEL tool result item — unlike Gemini's nesting inside a Content.
         const callId = asString(item.call_id) ?? asString(item.id) ?? '';
-        const outputText = typeof item.output === 'string' ? item.output : safeStringify(item.output);
+        const outputText =
+          typeof item.output === 'string' ? item.output : safeStringify(item.output);
         const block: ContentBlock = {
           type: 'tool_result',
           toolUseId: callId,
@@ -459,9 +464,7 @@ class CodexResponsesObserver implements StreamObserver {
   }
 
   outputTokensSoFar(): { value: number; source: 'upstream-reported' | 'gateway-computed' } | null {
-    return this.usage.output
-      ? { value: this.usage.output.value, source: this.usageSource }
-      : null;
+    return this.usage.output ? { value: this.usage.output.value, source: this.usageSource } : null;
   }
 
   finalize(reason: 'complete' | 'client_aborted' | 'upstream_error'): ObserverResult {
@@ -499,7 +502,7 @@ export function codexResponsesAdapter(opts: AdapterOptions): Adapter {
      */
     matches(ctx: AdapterRequestContext): boolean {
       if (ctx.method !== 'POST') return false;
-      const p = (ctx.path ?? '').split('?')[0];
+      const p = (ctx.path ?? '').split('?')[0] ?? '';
       // Explicitly reject the other two AI endpoints.
       if (p.includes('/chat/completions') || p.endsWith('/v1/messages') || p === '/v1/messages') {
         return false;
@@ -549,9 +552,7 @@ export function codexResponsesAdapter(opts: AdapterOptions): Adapter {
             const name =
               asString(rec.name) ?? asString(asRecord(rec.function)?.name) ?? '(unnamed)';
             const description =
-              asString(rec.description) ??
-              asString(asRecord(rec.function)?.description) ??
-              '';
+              asString(rec.description) ?? asString(asRecord(rec.function)?.description) ?? '';
             const schema = rec.parameters ?? asRecord(rec.function)?.parameters ?? null;
             return [
               {

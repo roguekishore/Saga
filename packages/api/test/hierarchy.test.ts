@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { TurnDetailSchema, TurnListSchema } from '@saga/contracts';
-import { MIGRATIONS, openDatabase, runMigrations, type Driver } from '@saga/store';
+import { type Driver, MIGRATIONS, openDatabase, runMigrations } from '@saga/store';
 import { getTurnDetail, listSessionTurns } from '../src/hierarchy';
 
 /**
@@ -20,22 +20,22 @@ const SESSION_B = 'ses_hier_b'; // used only to confirm cross-session isolation
 // turn IDs in SESSION_A
 const TURN_DOOR_A_PRESENT = 'turn_door_a_present'; // seq 0 — door A, ingest present
 const TURN_DOOR_A_PENDING = 'turn_door_a_pending'; // seq 1 — door A, ingest pending
-const TURN_DOOR_B = 'turn_door_b';               // seq 2 — door B / Gemini
-const TURN_MIXED_PROV = 'turn_mixed_prov';       // seq 3 — two requests, mixed provenance
-const TURN_CTX_CLIMB = 'turn_ctx_climb';          // seq 4 — context_usage_percentage climb
-const TURN_SINGLE = 'turn_single';               // seq 5 — one request, no injections
+const TURN_DOOR_B = 'turn_door_b'; // seq 2 — door B / Gemini
+const TURN_MIXED_PROV = 'turn_mixed_prov'; // seq 3 — two requests, mixed provenance
+const TURN_CTX_CLIMB = 'turn_ctx_climb'; // seq 4 — context_usage_percentage climb
+const TURN_SINGLE = 'turn_single'; // seq 5 — one request, no injections
 
 // request IDs — each must be unique
 const REQ_PRESENT_1 = 'req_present_1';
 const REQ_PRESENT_2 = 'req_present_2';
 const REQ_PENDING_1 = 'req_pending_1';
-const REQ_DOOR_B_1  = 'req_door_b_1';
-const REQ_MIXED_GW  = 'req_mixed_gw';
-const REQ_MIXED_UP  = 'req_mixed_up';
-const REQ_CTX_1     = 'req_ctx_1';
-const REQ_CTX_2     = 'req_ctx_2';
-const REQ_CTX_3     = 'req_ctx_3';
-const REQ_SINGLE_1  = 'req_single_1';
+const REQ_DOOR_B_1 = 'req_door_b_1';
+const REQ_MIXED_GW = 'req_mixed_gw';
+const REQ_MIXED_UP = 'req_mixed_up';
+const REQ_CTX_1 = 'req_ctx_1';
+const REQ_CTX_2 = 'req_ctx_2';
+const REQ_CTX_3 = 'req_ctx_3';
+const REQ_SINGLE_1 = 'req_single_1';
 
 const T0 = 1_700_000_000_000; // arbitrary stable epoch
 
@@ -170,7 +170,12 @@ beforeAll(() => {
   insertSession(writeDb, SESSION_A);
 
   // Turn 0: door A, ingest_received_at IS NOT NULL → 'present'
-  insertTurn(writeDb, { turnId: TURN_DOOR_A_PRESENT, sessionId: SESSION_A, seq: 0, requestCount: 2 });
+  insertTurn(writeDb, {
+    turnId: TURN_DOOR_A_PRESENT,
+    sessionId: SESSION_A,
+    seq: 0,
+    requestCount: 2,
+  });
   insertRequest(writeDb, {
     requestId: REQ_PRESENT_1,
     sessionId: SESSION_A,
@@ -202,18 +207,33 @@ beforeAll(() => {
     contextUsagePct: 18.0,
   });
   // Injection on first request
-  insertInjection(writeDb, REQ_PRESENT_1, 0, 'user_instructions', 'saga-observed', 'system', 'mem-ctx');
-  insertInjection(writeDb, REQ_PRESENT_1, 1, 'kiro_prompt', 'conduit-declared', 'user', null);
+  insertInjection(
+    writeDb,
+    REQ_PRESENT_1,
+    0,
+    'user_instructions',
+    'saga-observed',
+    'system',
+    'mem-ctx',
+  );
+  // `undefined`, not null: the helper's optional params take `string | undefined`
+  // and coalesce to SQL NULL themselves.
+  insertInjection(writeDb, REQ_PRESENT_1, 1, 'kiro_prompt', 'conduit-declared', 'user');
 
   // Turn 1: door A, ingest_received_at IS NULL → 'pending'
-  insertTurn(writeDb, { turnId: TURN_DOOR_A_PENDING, sessionId: SESSION_A, seq: 1, requestCount: 1 });
+  insertTurn(writeDb, {
+    turnId: TURN_DOOR_A_PENDING,
+    sessionId: SESSION_A,
+    seq: 1,
+    requestCount: 1,
+  });
   insertRequest(writeDb, {
     requestId: REQ_PENDING_1,
     sessionId: SESSION_A,
     turnId: TURN_DOOR_A_PENDING,
     ts: T0 + 20_000,
     door: 'A',
-    ingestReceivedAt: null,  // seam not yet arrived
+    ingestReceivedAt: null, // seam not yet arrived
     metricsSource: null,
     inputTokens: 800,
     inputTokensSource: 'gateway-computed',
@@ -229,7 +249,7 @@ beforeAll(() => {
     ts: T0 + 40_000,
     door: 'B',
     harness: 'gemini-cli',
-    ingestReceivedAt: null,  // door B never has seam
+    ingestReceivedAt: null, // door B never has seam
     metricsSource: 'gemini-native',
     inputTokens: 500,
     inputTokensSource: 'upstream-reported',
@@ -340,17 +360,13 @@ describe('listSessionTurns', () => {
   });
 
   test('session with no turns returns empty items', () => {
-    const result = TurnListSchema.parse(
-      listSessionTurns(readDb, SESSION_B, { limit: 50 }),
-    );
+    const result = TurnListSchema.parse(listSessionTurns(readDb, SESSION_B, { limit: 50 }));
     expect(result.items).toHaveLength(0);
     expect(result.nextCursor).toBeNull();
   });
 
   test('returns turns ordered by seq ascending', () => {
-    const result = TurnListSchema.parse(
-      listSessionTurns(readDb, SESSION_A, { limit: 100 }),
-    );
+    const result = TurnListSchema.parse(listSessionTurns(readDb, SESSION_A, { limit: 100 }));
     expect(result.items.length).toBeGreaterThanOrEqual(6);
     const seqs = result.items.map((t) => t.seq);
     for (let i = 1; i < seqs.length; i++) {
@@ -359,9 +375,7 @@ describe('listSessionTurns', () => {
   });
 
   test('each turn has the correct requestCount', () => {
-    const result = TurnListSchema.parse(
-      listSessionTurns(readDb, SESSION_A, { limit: 100 }),
-    );
+    const result = TurnListSchema.parse(listSessionTurns(readDb, SESSION_A, { limit: 100 }));
     const byId = new Map(result.items.map((t) => [t.turnId, t]));
     expect(byId.get(TURN_DOOR_A_PRESENT)?.requestCount).toBe(2);
     expect(byId.get(TURN_DOOR_A_PENDING)?.requestCount).toBe(1);
@@ -369,9 +383,7 @@ describe('listSessionTurns', () => {
   });
 
   test('pagination: nextCursor is non-null when more turns exist', () => {
-    const page1 = TurnListSchema.parse(
-      listSessionTurns(readDb, SESSION_A, { limit: 2 }),
-    );
+    const page1 = TurnListSchema.parse(listSessionTurns(readDb, SESSION_A, { limit: 2 }));
     expect(page1.items).toHaveLength(2);
     expect(page1.nextCursor).not.toBeNull();
     expect(page1.items[0]?.seq).toBe(0);
@@ -379,9 +391,7 @@ describe('listSessionTurns', () => {
   });
 
   test('pagination: cursor advances to the next page correctly', () => {
-    const page1 = TurnListSchema.parse(
-      listSessionTurns(readDb, SESSION_A, { limit: 2 }),
-    );
+    const page1 = TurnListSchema.parse(listSessionTurns(readDb, SESSION_A, { limit: 2 }));
     const page2 = TurnListSchema.parse(
       listSessionTurns(readDb, SESSION_A, {
         limit: 2,
@@ -394,9 +404,7 @@ describe('listSessionTurns', () => {
 
   test('pagination: nextCursor is null when the last page is returned', () => {
     // Fetch all 6 turns in pages of 4
-    const page1 = TurnListSchema.parse(
-      listSessionTurns(readDb, SESSION_A, { limit: 4 }),
-    );
+    const page1 = TurnListSchema.parse(listSessionTurns(readDb, SESSION_A, { limit: 4 }));
     expect(page1.nextCursor).not.toBeNull();
     const page2 = TurnListSchema.parse(
       listSessionTurns(readDb, SESSION_A, {
@@ -596,9 +604,7 @@ describe('getTurnDetail', () => {
     // Report timing — this is in-memory so it should be sub-millisecond,
     // but the assertion is just that it completes (correctness, not speed).
     // See C5 report for measured timing against a corpus with realistic row counts.
-    console.info(
-      `[hierarchy] getTurnDetail(TURN_CTX_CLIMB, 3 requests) = ${elapsed.toFixed(2)}ms`,
-    );
+    console.info(`[hierarchy] getTurnDetail(TURN_CTX_CLIMB, 3 requests) = ${elapsed.toFixed(2)}ms`);
     expect(elapsed).toBeLessThan(500); // well under the 200ms production target for in-memory
   });
 });

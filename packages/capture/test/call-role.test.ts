@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { classifyCallRole } from '../src/call-role';
 import type { NormalizedRequest } from '@saga/contracts';
+import { classifyCallRole } from '../src/call-role';
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -23,12 +23,9 @@ export interface CallRoleClassification {
 }
 
 /**
- * ===========================================================================
- * TODO(C3): implement. Returns `unknown`/`inferred` until then — a WORKING
- * state, and for Gemini the permanently correct one.
- * ===========================================================================
- *
- * C3, what the spec establishes:
+ * Implemented. Note that `unknown` is not a stub leftover here: for Gemini it is
+ * the permanently correct answer, because the Vertex wire carries nothing that
+ * would distinguish these roles. What the classifier rests on:
  *
  * DECLARED, for Codex only. `x-openai-subagent` ∈ {review, compact,
  * memory_consolidation, collab_spawn, custom}: absent → `main`;
@@ -36,15 +33,27 @@ export interface CallRoleClassification {
  * Source is `'harness-declared'`. C2 surfaces the raw value.
  *
  * FINGERPRINTED, for Claude Code (`source: 'inferred'`):
- *   main     — big system prompt + full tool set + long run
- *   subagent — a DIFFERENT large prompt overlapping a main call in time
- *   utility  — tiny prompt + no tools + small budget + cheap model
+ *   utility  — no tools AND max_tokens <= 64 AND message_count <= 3
+ *   subagent — a smaller model under a session that has already seen a larger
+ *              one, WITH tools and a real budget
+ *   main     — everything else
  *
- * One strong extra Claude Code signal, and the reason `sessionModels` is in this
- * signature: a Sonnet request under an otherwise-Opus session is a reliable
- * subagent marker, because Claude Code drops subagents to Sonnet by default.
- * CV's report says whether real rows bear this out — IF CV REFUTED IT, DO NOT
- * USE IT, and say so.
+ * Both fingerprints are as measured against real traffic (`docs/ws-c/CV-findings.md`,
+ * 279 utility calls over 4 sessions), and both CORRECT what the spec originally
+ * asserted. Do not "restore" either older rule:
+ *
+ *  - "tiny prompt" is backwards. Utility payloads are LARGE — mean 217KB, because
+ *    a titling call ships the conversation it has to summarize. Sizing on the
+ *    prompt would miss nearly all of them; `message_count` is what separates them
+ *    (utility sits at 2-3 messages, everything else spans 0-455).
+ *  - "a Sonnet request under an Opus session is a subagent" would mislabel 278 of
+ *    395 Sonnet calls, because the utility traffic IS Sonnet under Opus sessions.
+ *    That is why the tools-and-budget conditions are load-bearing rather than
+ *    incidental, and why `sessionModels` alone is never sufficient.
+ *
+ * "Cheap model" is also relative and deliberately unused: utility ran on Sonnet-5
+ * under Opus-5 sessions, while Haiku appeared with no tools and a 32,000 budget,
+ * which is not utility at all.
  *
  * NOT INFERRABLE for Gemini. The Vertex wire carries nothing that distinguishes
  * these. Return `'unknown'` rather than guessing; the schema has a slot for it
@@ -121,11 +130,7 @@ export function classifyCallRole(input: {
       return {
         role: 'utility',
         source: 'inferred',
-        evidence: [
-          'no-tools',
-          `max_tokens<=${maxTokens}`,
-          `message_count=${messageCount}`,
-        ],
+        evidence: ['no-tools', `max_tokens<=${maxTokens}`, `message_count=${messageCount}`],
       };
     }
 
@@ -133,8 +138,7 @@ export function classifyCallRole(input: {
     // Conditions: current model is a smaller tier (sonnet/haiku) AND the session
     // has already seen a larger model (opus) AND tools present AND real budget.
     const currentModel = (request.model ?? '').toLowerCase();
-    const isSmallerModel =
-      currentModel.includes('sonnet') || currentModel.includes('haiku');
+    const isSmallerModel = currentModel.includes('sonnet') || currentModel.includes('haiku');
     const sessionHasLargerModel = sessionModels.some((m) => m.toLowerCase().includes('opus'));
     const hasTools = toolCount > 0;
     const hasRealBudget = maxTokens !== null && maxTokens > 64;

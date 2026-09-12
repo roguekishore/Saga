@@ -50,11 +50,7 @@ describe('handleConduitIngest', () => {
   test('body too large: byteLength > DEFAULT_MAX_INGEST_BYTES → 413, emit not called', () => {
     const { emitted, emit } = collectEmits();
 
-    const result = handleConduitIngest(
-      { emit },
-      makePayload(),
-      DEFAULT_MAX_INGEST_BYTES + 1,
-    );
+    const result = handleConduitIngest({ emit }, makePayload(), DEFAULT_MAX_INGEST_BYTES + 1);
 
     expect(result.status).toBe(413);
     expect(emitted.length).toBe(0);
@@ -83,11 +79,7 @@ describe('handleConduitIngest', () => {
   test('invalid payload shape: empty request_id → 400, emit not called', () => {
     const { emitted, emit } = collectEmits();
 
-    const result = handleConduitIngest(
-      { emit },
-      makePayload({ request_id: '' }),
-      200,
-    );
+    const result = handleConduitIngest({ emit }, makePayload({ request_id: '' }), 200);
 
     expect(result.status).toBe(400);
     expect(emitted.length).toBe(0);
@@ -133,11 +125,7 @@ describe('handleConduitIngest', () => {
   test('rewritten_out null: emitted event has rewrittenOutJson null, redaction.hits empty', () => {
     const { emitted, emit } = collectEmits();
 
-    const result = handleConduitIngest(
-      { emit },
-      makePayload({ rewritten_out: null }),
-      200,
-    );
+    const result = handleConduitIngest({ emit }, makePayload({ rewritten_out: null }), 200);
 
     expect(result.status).toBe(200);
     expect(emitted.length).toBe(1);
