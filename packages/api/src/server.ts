@@ -13,6 +13,8 @@ import {
 import type { Driver } from '@saga/store';
 import { Hono } from 'hono';
 import { listAgents, listToolCalls, listToolStats } from './devtools-queries';
+import { getTurnDetail, listSessionTurns } from './hierarchy';
+import { DEFAULT_MAX_INGEST_BYTES, handleConduitIngest } from './ingest';
 import {
   getOverview,
   getRequestDetail,
@@ -69,6 +71,20 @@ export interface ApiServerOptions {
   }>;
   /** Serve the built dashboard from this directory (SPA fallback). */
   staticDir?: string;
+  /**
+   * Push an event onto the capture queue. Required by the CONDUIT ingest seam:
+   * that endpoint must NOT write to SQLite — `StoreWriter` is the single writer —
+   * so it validates, redacts, and enqueues. That is also what makes the
+   * contract's fire-and-forget guarantee free rather than something the handler
+   * has to arrange.
+   *
+   * Optional so existing read-only callers (tests, the desktop shell) construct
+   * unchanged; without it the ingest route reports itself unavailable instead of
+   * silently accepting and dropping CONDUIT's data.
+   */
+  emit?: (ev: NormalizedEvent) => void;
+  /** Cap on the ingest body. See `ingest.ts` for why this is not a formality. */
+  maxIngestBytes?: number;
 }
 
 export interface ApiServerHandle {
@@ -175,6 +191,62 @@ export function startApiServer(opts: ApiServerOptions): ApiServerHandle {
       storageCache = { at: Date.now(), value: getStorageInfo(opts.db, opts.dbPath, retention) };
     }
     return c.json(storageCache.value);
+  });
+
+  // ---- WS-C: the hierarchy read path (C5 fills the queries behind these).
+  app.get('/api/sessions/:id/turns', (c) => {
+    const limit = Math.min(500, num(c.req.query('limit')) ?? 100);
+    return c.json(
+      listSessionTurns(opts.db, c.req.param('id'), { limit, cursor: c.req.query('cursor') }),
+    );
+  });
+
+  app.get('/api/turns/:id', (c) => {
+    const detail = getTurnDetail(opts.db, c.req.param('id'));
+    return detail ? c.json(detail) : c.json({ error: 'not found' }, 404);
+  });
+
+  /**
+   * ---- WS-C: the CONDUIT ingest seam. The FIRST WRITE endpoint on this server.
+   *
+   * Security posture, stated rather than buried: there is no auth here, exactly
+   * as on the read API, WebSocket, and SQL endpoint. Loopback binding is the only
+   * boundary. The body is treated as untrusted input even though the caller is a
+   * local component — validated against the frozen schema and capped.
+   *
+   * The path is deliberately OUTSIDE `/api` (the seam contract froze it), which
+   * is why the static handler below has to be taught to leave it alone; a bare
+   * `!startsWith('/api')` would hand CONDUIT the SPA's index.html and a 200.
+   */
+  app.post(API_PATHS.ingestConduit, async (c) => {
+    // Read as text first: the byte length is what the cap is about, and parsing
+    // an oversized body to discover its size defeats the cap.
+    let raw: string;
+    try {
+      raw = await c.req.text();
+    } catch {
+      return c.json({ error: 'could not read request body' }, 400);
+    }
+    const byteLength = Buffer.byteLength(raw, 'utf-8');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return c.json({ error: 'body must be JSON' }, 400);
+    }
+    if (!opts.emit) {
+      return c.json({ error: 'saga ingest unavailable: no event sink configured' }, 503);
+    }
+    const r = handleConduitIngest(
+      {
+        emit: opts.emit,
+        logger: log,
+        maxBodyBytes: opts.maxIngestBytes ?? DEFAULT_MAX_INGEST_BYTES,
+      },
+      parsed,
+      byteLength,
+    );
+    return c.json(r.body as Record<string, unknown>, r.status as 200);
   });
 
   app.get(API_PATHS.agents, (c) => c.json(listAgents(opts.db, c.req.query('sessionId'))));
@@ -302,7 +374,16 @@ export function startApiServer(opts: ApiServerOptions): ApiServerHandle {
         const ok = srv.upgrade(req, { data: { id: wsSeq++ } });
         return ok ? undefined : new Response('upgrade failed', { status: 400 });
       }
-      if (!url.pathname.startsWith('/api')) {
+      // The static handler must not shadow a real route. `/ingest/conduit` sits
+      // outside `/api` because the seam contract froze it there, so an
+      // `/api`-only check would send CONDUIT's POST to the SPA fallback — which
+      // answers with index.html and a 200, i.e. SAGA silently accepting and
+      // discarding every emit. Non-GET requests are excluded too: the static
+      // handler only ever serves documents, and letting a POST reach it is how
+      // that class of bug appears in the first place.
+      const isApiRoute =
+        url.pathname.startsWith('/api') || url.pathname === API_PATHS.ingestConduit;
+      if (!isApiRoute && (req.method === 'GET' || req.method === 'HEAD')) {
         const file = await serveStatic(url.pathname);
         if (file) return file;
       }
