@@ -178,6 +178,8 @@ function normalizeRequest(ctx: AdapterRequestContext): NormalizedRequest {
     if (!['messages', 'system', 'tools'].includes(k)) params[k] = v;
   }
 
+  const sessionId = clientSessionIdFrom(body);
+
   return {
     model,
     stream,
@@ -186,7 +188,13 @@ function normalizeRequest(ctx: AdapterRequestContext): NormalizedRequest {
     tools,
     paramsJson: safeStringify(params),
     rawRequestJson: safeStringify(body),
-    clientSessionId: clientSessionIdFrom(body),
+    clientSessionId: sessionId,
+    // Claude Code declares only session id on the wire — no thread or turn id.
+    // Surfaced here so the capture layer can read it from the typed field
+    // without re-parsing paramsJson. Null when no uuid-shaped session id found.
+    harnessIdentity: sessionId
+      ? { sessionId, threadId: null, turnId: null, parentTurnId: null }
+      : null,
   };
 }
 

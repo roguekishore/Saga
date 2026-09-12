@@ -4,9 +4,10 @@ import {
   type NormalizedEvent,
   noopLogger,
 } from '@saga/contracts';
+import { type RedactionHit, scrubValue } from '@saga/redact';
 
 /**
- * The CONDUIT → SAGA ingest seam — STUB. Implemented by C4.
+ * The CONDUIT → SAGA ingest seam.
  * Spec: `docs/ws-c/C4-conduit-ingest-seam.md`.
  * Contract: `D:/PROJECTS/AI/CONTRACT-conduit-saga-seam.md` (FROZEN — it outranks
  * both the spec and this comment).
@@ -26,9 +27,10 @@ import {
  * never delay or fail the client's response, and a synchronous DB write would
  * make a slow write CONDUIT's problem and therefore the user's.
  *
- * C4: do not "optimize" this into a direct write. The test for it should assert
- * the invariant structurally, because it is the one most likely to be broken by
- * a later well-meaning change.
+ * Do not "optimize" this into a direct write. The test for it asserts the
+ * invariant structurally (no `db`/`Driver` parameter anywhere in this file's
+ * signatures), because it is the one most likely to be broken by a later
+ * well-meaning change.
  * ===========================================================================
  */
 
@@ -55,28 +57,21 @@ export interface IngestResult {
 export const DEFAULT_MAX_INGEST_BYTES = 8 * 1024 * 1024;
 
 /**
- * Handle one emit.
+ * Handle one emit: validate against the frozen payload shape, redact
+ * `rewritten_out`, and push a `conduit_ingest` event onto the capture queue via
+ * `opts.emit`. Returns a small JSON ack; never throws.
  *
- * ===========================================================================
- * TODO(C4): implement. Today it validates the frozen payload shape and rejects
- * malformed bodies, but pushes NOTHING — so a CONDUIT that ships early gets an
- * honest 501 instead of a silent 200 that drops its data on the floor.
- * ===========================================================================
- *
- * C4's checklist, from the spec:
- *  - Redact `rewritten_out` with `@saga/redact` BEFORE it reaches the queue. It
- *    arrives over HTTP rather than through the proxy's capture path, which is
- *    exactly why this is easy to forget — and it carries the same material the
- *    proxy scrubs.
- *  - Label metrics `upstream-reported`: Kiro is the provider on door A, so these
- *    figures outrank the observer's `gateway-computed` estimates. The writer
- *    already resolves the two by provenance rank in either arrival order.
- *  - Be idempotent. A retry must not double-count credits.
- *  - Unknown `request_id` is EXPECTED (SAGA restarted, or capture began after the
- *    request went out) — count it, never throw.
- *  - Verify `x-saga-request-id` is actually forwarded upstream before trusting
- *    the join. C0 fixed that; the whole seam is inert if it regresses, and it
- *    fails silently rather than loudly.
+ * What this function deliberately does NOT do, and why:
+ *  - No idempotency/dedup logic. A retry emits twice on purpose — dedup-by-
+ *    `request_id` lives downstream in `StoreWriter.onConduitIngest` (the
+ *    `prior.ingest_received_at != null` check), which is the only place with a
+ *    prior state to compare against. This layer has none.
+ *  - No handling for an unknown `request_id`. This layer cannot know the id is
+ *    unknown without querying the DB, which it is forbidden from doing. The
+ *    writer counts `ingest_unmatched` and drops it.
+ *  - No provenance/label logic (`upstream-reported` / `metrics_source`). That
+ *    also lives in the writer; this layer just gets a correctly-shaped payload
+ *    onto the queue.
  */
 export function handleConduitIngest(
   opts: IngestOptions,
@@ -86,26 +81,58 @@ export function handleConduitIngest(
   const log = opts.logger ?? noopLogger;
   const max = opts.maxBodyBytes ?? DEFAULT_MAX_INGEST_BYTES;
 
-  if (byteLength > max) {
-    return {
-      status: 413,
-      body: { error: `ingest body exceeds ${max} bytes` },
+  try {
+    if (byteLength > max) {
+      return {
+        status: 413,
+        body: { error: `ingest body exceeds ${max} bytes` },
+      };
+    }
+
+    const parsed = ConduitIngestPayloadSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      // A message specific enough for CONDUIT's author to debug against.
+      return { status: 400, body: { error: `invalid ingest payload: ${parsed.error.message}` } };
+    }
+
+    const payload = parsed.data;
+
+    // Redact `rewritten_out` BEFORE it reaches the queue. It arrives over HTTP
+    // rather than through the proxy's capture path (which auto-redacts), and it
+    // carries a full system prompt, message history, and tool specs — the same
+    // material the proxy scrubs. `scrubValue` deep-scrubs the whole object:
+    // sensitive keys wholesale, strings by pattern; it does not care that
+    // `current_message`/`history`/`tools` are typed `z.unknown()`.
+    let rewrittenOutJson: string | null = null;
+    let hits: RedactionHit[] = [];
+    let flagged = false;
+    if (payload.rewritten_out) {
+      const scrubbed = scrubValue(payload.rewritten_out);
+      rewrittenOutJson = JSON.stringify(scrubbed.value);
+      hits = scrubbed.hits;
+      flagged = scrubbed.flagged;
+    }
+
+    const event: NormalizedEvent = {
+      kind: 'conduit_ingest',
+      requestId: payload.request_id,
+      ts: payload.ts,
+      payload,
+      rewrittenOutJson,
+      redaction: { hits, flagged },
     };
-  }
 
-  const parsed = ConduitIngestPayloadSchema.safeParse(rawBody);
-  if (!parsed.success) {
-    // A message specific enough for CONDUIT's author to debug against.
-    return { status: 400, body: { error: `invalid ingest payload: ${parsed.error.message}` } };
-  }
+    opts.emit(event);
 
-  log.log(
-    'warn',
-    'ingest',
-    `conduit ingest received for ${parsed.data.request_id} but the seam is not implemented (C4); payload dropped`,
-  );
-  return {
-    status: 501,
-    body: { error: 'saga ingest seam not implemented yet (WS-C C4)', accepted: false },
-  };
+    return { status: 200, body: { accepted: true } };
+  } catch (err) {
+    // Never throw out of the handler — a bug here must cost this one POST, not
+    // take the ingest route down for CONDUIT.
+    log.log(
+      'error',
+      'ingest',
+      `conduit ingest handler failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return { status: 500, body: { error: 'internal error handling ingest payload' } };
+  }
 }

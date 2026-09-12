@@ -28,8 +28,8 @@ export type { AdapterOptions } from './shared';
 export function createAdapters(opts: AdapterOptions): Adapter[] {
   return [
     anthropicAdapter(opts),
-    codexResponsesAdapter(),
-    geminiAdapter(),
+    codexResponsesAdapter(opts),
+    geminiAdapter(opts),
     openaiAdapter(opts),
     passthroughAdapter(),
   ];

@@ -67,13 +67,148 @@ export interface TurnClassification {
  *    Compaction writes a distinct record type and must NOT open a turn: doing so
  *    would split one instruction's loop in half.
  */
-export function classifyTurn(_input: {
+export function classifyTurn(input: {
   request: NormalizedRequest;
   headers: Record<string, string>;
   adapterId: string;
   door: Door;
 }): TurnClassification {
-  return { kind: 'unknown', source: 'inferred', harnessTurnId: null, evidence: [] };
+  const { request, adapterId } = input;
+  const injections = request.injections ?? [];
+
+  // ---- Codex: harness-declared turn id ------------------------------------
+  // Codex puts turn_id in client_metadata (surfaced by C2 via harnessIdentity).
+  // When present it is wire evidence — never override with a heuristic.
+  if (adapterId === 'codex-responses') {
+    const turnId = request.harnessIdentity?.turnId ?? null;
+    if (turnId) {
+      // Discriminate kind by context markers.
+      // user_instructions → genuine human turn; environment_context:diff or
+      // nothing recognizable → tool result continuation.
+      const injTypes = injections.map((inj) => inj.type);
+      const hasUserInstructions = injTypes.includes('user_instructions');
+      const kind: TurnBoundaryKind = hasUserInstructions ? 'human_turn' : 'tool_continuation';
+      return {
+        kind,
+        source: 'harness-declared',
+        harnessTurnId: turnId,
+        evidence: [
+          'codex.client_metadata.turn_id',
+          hasUserInstructions ? 'injection:user_instructions' : 'no-user-instructions-injection',
+        ],
+      };
+    }
+    // No turn id in this codex request — honest unknown.
+    return {
+      kind: 'unknown',
+      source: 'inferred',
+      harnessTurnId: null,
+      evidence: ['codex-no-turn-id'],
+    };
+  }
+
+  // ---- Claude Code: structural discriminator ------------------------------
+  // Compaction writes a distinct record type — do not open a turn for it.
+  // Then: tool-result-only final message → continuation; anything else → human.
+  if (adapterId === 'anthropic') {
+    // Compaction check: injection tag is the primary signal. The spec also
+    // calls out message_count=1 with a single large system block as a secondary
+    // marker, but the injection tag is definitive when present.
+    const hasCompactionTag = injections.some((inj) => inj.type === 'compaction');
+    if (hasCompactionTag) {
+      return {
+        kind: 'tool_continuation',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: ['compaction-detected'],
+      };
+    }
+
+    const lastMsg = request.messages[request.messages.length - 1];
+    if (!lastMsg) {
+      return {
+        kind: 'unknown',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: ['no-messages'],
+      };
+    }
+
+    // The adapter sets contextSource:'tool' exactly when all blocks are
+    // tool_result (structural, not a guess). Check both: the contextSource for
+    // the already-normalized message, and the blocks directly for robustness.
+    const toolOnly =
+      lastMsg.contextSource === 'tool' ||
+      (lastMsg.blocks.length > 0 && lastMsg.blocks.every((b) => b.type === 'tool_result'));
+
+    if (toolOnly) {
+      return {
+        kind: 'tool_continuation',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: ['final-message-tool-only'],
+      };
+    }
+    return {
+      kind: 'human_turn',
+      source: 'inferred',
+      harnessTurnId: null,
+      evidence: ['final-message-has-non-tool-content'],
+    };
+  }
+
+  // ---- Gemini: position-based session_context + final-message role --------
+  // session_context always appears as the first injection (history item 0);
+  // its presence means this is a context push, not a new human instruction.
+  // "Last message role user" alone is NOT sufficient — the pushed context block
+  // is also role:user. Discriminate on position first, then on block content.
+  if (adapterId === 'gemini') {
+    const firstInjIsSessionCtx = injections.length > 0 && injections[0]?.type === 'session_context';
+    if (firstInjIsSessionCtx) {
+      return {
+        kind: 'tool_continuation',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: ['gemini-session-context-position-0'],
+      };
+    }
+
+    const lastMsg = request.messages[request.messages.length - 1];
+    if (lastMsg?.role === 'user') {
+      // functionResponse parts map to tool_result blocks after normalization.
+      const allFunctionResponse =
+        lastMsg.blocks.length > 0 && lastMsg.blocks.every((b) => b.type === 'tool_result');
+      if (allFunctionResponse) {
+        return {
+          kind: 'tool_continuation',
+          source: 'inferred',
+          harnessTurnId: null,
+          evidence: ['gemini-last-message-function-response'],
+        };
+      }
+      return {
+        kind: 'human_turn',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: ['gemini-last-message-user-non-tool'],
+      };
+    }
+
+    return {
+      kind: 'unknown',
+      source: 'inferred',
+      harnessTurnId: null,
+      evidence: ['gemini-no-user-final-message'],
+    };
+  }
+
+  // ---- Fallback -----------------------------------------------------------
+  return {
+    kind: 'unknown',
+    source: 'inferred',
+    harnessTurnId: null,
+    evidence: [`unknown-adapter:${adapterId}`],
+  };
 }
 
 export interface TurnAssignment {

@@ -54,7 +54,7 @@ export interface CallRoleClassification {
  * instead of trusting it. Populate it even for `unknown`, where the evidence is
  * what you looked for and did not find.
  */
-export function classifyCallRole(_input: {
+export function classifyCallRole(input: {
   request: NormalizedRequest;
   headers: Record<string, string>;
   adapterId: string;
@@ -62,5 +62,123 @@ export function classifyCallRole(_input: {
   /** Models already seen in this session — drives the Sonnet-under-Opus signal. */
   sessionModels: string[];
 }): CallRoleClassification {
-  return { role: 'unknown', source: 'inferred', evidence: [] };
+  const { request, headers, adapterId, sessionModels } = input;
+
+  // ---- Codex: harness-declared role ---------------------------------------
+  // C2 surfaces the raw x-openai-subagent header value. Map it:
+  //   absent           → main
+  //   compact / memory_consolidation → utility
+  //   anything else    → subagent
+  if (adapterId === 'codex-responses') {
+    const raw = headers['x-openai-subagent'] ?? null;
+    if (!raw) {
+      return {
+        role: 'main',
+        source: 'harness-declared',
+        evidence: ['x-openai-subagent:absent'],
+      };
+    }
+    if (raw === 'compact' || raw === 'memory_consolidation') {
+      return {
+        role: 'utility',
+        source: 'harness-declared',
+        evidence: [`x-openai-subagent:${raw}`],
+      };
+    }
+    return {
+      role: 'subagent',
+      source: 'harness-declared',
+      evidence: [`x-openai-subagent:${raw}`],
+    };
+  }
+
+  // ---- Claude Code: fingerprint-based classification ----------------------
+  // CV-findings corrected both signals:
+  //
+  // UTILITY fingerprint (from CV, not the spec):
+  //   tools=[] AND max_tokens<=64 AND message_count<=3
+  //   Payloads are LARGE (~217KB); do NOT use payload size.
+  //
+  // SUBAGENT (refined CV form):
+  //   Sonnet under an Opus session WITH tools AND real budget.
+  //   The naive "Sonnet under Opus" rule would mislabel 278/395 Sonnet calls
+  //   because utility traffic is itself Sonnet under Opus. CV refuted it.
+  if (adapterId === 'anthropic') {
+    const toolCount = request.tools.length;
+    const maxTokens = (() => {
+      try {
+        const p = JSON.parse(request.paramsJson) as Record<string, unknown>;
+        const v = p.max_tokens;
+        return typeof v === 'number' ? v : null;
+      } catch {
+        return null;
+      }
+    })();
+    const messageCount = request.messages.length;
+
+    // Utility: structural triple from CV-findings §3b.
+    if (toolCount === 0 && maxTokens !== null && maxTokens <= 64 && messageCount <= 3) {
+      return {
+        role: 'utility',
+        source: 'inferred',
+        evidence: [
+          'no-tools',
+          `max_tokens<=${maxTokens}`,
+          `message_count=${messageCount}`,
+        ],
+      };
+    }
+
+    // Subagent: refined Sonnet-under-Opus signal (CV §3a).
+    // Conditions: current model is a smaller tier (sonnet/haiku) AND the session
+    // has already seen a larger model (opus) AND tools present AND real budget.
+    const currentModel = (request.model ?? '').toLowerCase();
+    const isSmallerModel =
+      currentModel.includes('sonnet') || currentModel.includes('haiku');
+    const sessionHasLargerModel = sessionModels.some((m) => m.toLowerCase().includes('opus'));
+    const hasTools = toolCount > 0;
+    const hasRealBudget = maxTokens !== null && maxTokens > 64;
+
+    if (isSmallerModel && sessionHasLargerModel && hasTools && hasRealBudget) {
+      return {
+        role: 'subagent',
+        source: 'inferred',
+        evidence: [
+          `current-model:${currentModel}`,
+          'session-has-opus',
+          'has-tools',
+          `max_tokens=${maxTokens}`,
+        ],
+      };
+    }
+
+    // Everything else: main.
+    return {
+      role: 'main',
+      source: 'inferred',
+      evidence: [
+        toolCount > 0 ? 'has-tools' : 'no-tools',
+        maxTokens !== null ? `max_tokens=${maxTokens}` : 'max_tokens:unknown',
+        `message_count=${messageCount}`,
+      ],
+    };
+  }
+
+  // ---- Gemini: not inferrable from Vertex wire ----------------------------
+  // Nothing distinguishes main / subagent / utility on the Vertex wire.
+  // Return unknown rather than guess — honest unknown beats fabricated role.
+  if (adapterId === 'gemini') {
+    return {
+      role: 'unknown',
+      source: 'inferred',
+      evidence: ['gemini-wire-undifferentiated'],
+    };
+  }
+
+  // ---- Fallback -----------------------------------------------------------
+  return {
+    role: 'unknown',
+    source: 'inferred',
+    evidence: [`unknown-adapter:${adapterId}`],
+  };
 }
