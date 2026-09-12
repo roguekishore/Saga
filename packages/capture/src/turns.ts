@@ -1,0 +1,182 @@
+import type { ClaimSource, Door, NormalizedRequest, TurnBoundaryKind } from '@saga/contracts';
+
+/**
+ * Turn grouping — the rung the whole hierarchy rests on.
+ *
+ * One human-typed message is NOT one model call. It opens an agentic loop: the
+ * model calls a tool, the harness runs it and feeds the result back, and the
+ * loop repeats until the model answers with no tool call. A small task is ~4
+ * requests, a large one 30+, and every request re-ships the entire growing
+ * conversation because the model remembers nothing on its own.
+ *
+ * So a turn is the unit a human would recognize as "the thing I asked for":
+ * a human message opens one, every round-trip folds under it, the next human
+ * message opens the next.
+ *
+ * ---------------------------------------------------------------------------
+ * OWNERSHIP: C0 created this file and implements `TurnCorrelator` (state, which
+ * the capture call site needs). C3 implements `classifyTurn` (the per-harness
+ * heuristic). The split is deliberate: the correlator is a call-site concern and
+ * mechanical; the classifier is where the harness knowledge lives.
+ *
+ * C3 MUST NOT change `TurnCorrelator`'s signature — `proxy.ts` calls it.
+ */
+
+export type TurnBoundarySource = ClaimSource;
+export type { TurnBoundaryKind };
+
+export interface TurnClassification {
+  kind: TurnBoundaryKind;
+  source: TurnBoundarySource;
+  /** Harness-declared turn id where the wire carries one (Codex). Null otherwise. */
+  harnessTurnId: string | null;
+  /** Markers that drove the decision — for UI honesty and debugging. */
+  evidence: string[];
+}
+
+/**
+ * Is this request a fresh human instruction, or another round-trip of a loop an
+ * earlier instruction started?
+ *
+ * ===========================================================================
+ * TODO(C3): implement. Returns `unknown`/`inferred` until then, which is a
+ * WORKING state — the correlator degrades to one open turn per session rather
+ * than crashing or inventing boundaries.
+ * ===========================================================================
+ *
+ * C3, three things the spec establishes and this signature exists to serve:
+ *
+ * 1. PREFER EVIDENCE. Codex DECLARES `client_metadata.turn_id`, so grouping is
+ *    exact for that harness — return `source: 'harness-declared'` and the id.
+ *    Claude Code and Gemini declare nothing, so those are `'inferred'`. Never
+ *    override a declared boundary with the heuristic, and never collapse the two
+ *    paths into one "simpler" inferred path.
+ *
+ * 2. THE ROLE-`user` TRAP. "Last message has role `user` → human turn" is WRONG
+ *    on both Codex and Gemini: the pushed context block is ALSO a `role:"user"`
+ *    item. Discriminate on markers first, role second — Codex
+ *    `<user_instructions>`/`<environment_context>`, Gemini `<session_context>`
+ *    (always history item 0 at a stable position, so position alone identifies
+ *    it there).
+ *
+ * 3. CLAUDE CODE IS STRUCTURAL, NOT A MARKER HUNT. A tool-result round-trip's
+ *    final message consists SOLELY of `tool_result` blocks; a human turn's does
+ *    not. `shared.ts` already computes exactly this as `toolOnly`. That is real
+ *    payload structure — but it is still SAGA deriving it rather than the harness
+ *    stating it, so `source` stays `'inferred'`. Do not promote it.
+ *    Compaction writes a distinct record type and must NOT open a turn: doing so
+ *    would split one instruction's loop in half.
+ */
+export function classifyTurn(_input: {
+  request: NormalizedRequest;
+  headers: Record<string, string>;
+  adapterId: string;
+  door: Door;
+}): TurnClassification {
+  return { kind: 'unknown', source: 'inferred', harnessTurnId: null, evidence: [] };
+}
+
+export interface TurnAssignment {
+  turnId: string;
+  /** Ordinal within the session. */
+  seq: number;
+  /** True when this request opened the turn. */
+  opened: boolean;
+  /**
+   * True when the turn was opened by a continuation with no open turn — SAGA
+   * restarted mid-loop, or capture began mid-conversation. The turn is genuinely
+   * incomplete and the UI must be able to say so.
+   */
+  partial: boolean;
+}
+
+interface OpenTurn {
+  turnId: string;
+  seq: number;
+  lastTs: number;
+  /** Set only for harness-declared turns, which key directly. */
+  harnessTurnId: string | null;
+}
+
+/**
+ * Assigns requests to turns. Stateful, because `classifyTurn` answers "is this a
+ * human turn?" but cannot know WHICH turn is currently open for a session —
+ * that requires memory across requests.
+ *
+ * Modeled on `SessionCorrelator`/`AgentCorrelator`, including their bounded-map
+ * hygiene: one entry per session, never revisited once a conversation ends, so
+ * without pruning the map grows for the life of the process.
+ */
+export class TurnCorrelator {
+  private readonly open = new Map<string, OpenTurn>();
+  private readonly seqBySession = new Map<string, number>();
+  private readonly makeId: () => string;
+  private readonly idleMs: number;
+
+  constructor(makeId: () => string, idleMs = 30 * 60 * 1000) {
+    this.makeId = makeId;
+    this.idleMs = idleMs;
+  }
+
+  assign(input: {
+    sessionId: string;
+    classification: TurnClassification;
+    ts: number;
+  }): TurnAssignment {
+    const { sessionId, classification: c, ts } = input;
+    const cur = this.open.get(sessionId);
+
+    // A declared turn id keys the turn directly — no idle window, no heuristic.
+    // The idle window only ever applies to inferred boundaries.
+    if (c.harnessTurnId) {
+      if (cur && cur.harnessTurnId === c.harnessTurnId) {
+        cur.lastTs = ts;
+        return { turnId: cur.turnId, seq: cur.seq, opened: false, partial: false };
+      }
+      return this.openTurn(sessionId, ts, c.harnessTurnId, false);
+    }
+
+    if (c.kind === 'human_turn' || !cur) {
+      // No open turn and this is a continuation: capture began mid-loop. Open a
+      // turn marked partial rather than silently inventing a human turn — an
+      // honest partial turn beats a fabricated complete one.
+      const partial = c.kind !== 'human_turn';
+      return this.openTurn(sessionId, ts, null, partial);
+    }
+
+    // Idle split is a backstop for the inferred path: a "continuation" arriving
+    // long after the loop went quiet is far more likely a new instruction whose
+    // boundary the heuristic missed than a round-trip resumed after 30 minutes.
+    if (ts - cur.lastTs > this.idleMs) {
+      return this.openTurn(sessionId, ts, null, true);
+    }
+
+    cur.lastTs = ts;
+    return { turnId: cur.turnId, seq: cur.seq, opened: false, partial: false };
+  }
+
+  private openTurn(
+    sessionId: string,
+    ts: number,
+    harnessTurnId: string | null,
+    partial: boolean,
+  ): TurnAssignment {
+    const seq = (this.seqBySession.get(sessionId) ?? -1) + 1;
+    this.seqBySession.set(sessionId, seq);
+    const turnId = `turn_${this.makeId()}`;
+    this.open.set(sessionId, { turnId, seq, lastTs: ts, harnessTurnId });
+    this.prune(ts);
+    return { turnId, seq, opened: true, partial };
+  }
+
+  /** Bounded like the sibling correlators: idle sessions are never revisited. */
+  private prune(now: number): void {
+    if (this.open.size <= 500) return;
+    for (const [k, v] of this.open) {
+      if (now - v.lastTs > this.idleMs) {
+        this.open.delete(k);
+        this.seqBySession.delete(k);
+      }
+    }
+  }
+}

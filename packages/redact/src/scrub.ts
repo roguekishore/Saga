@@ -159,6 +159,25 @@ export function redactNormalizedRequest(req: NormalizedRequest): ScrubResult<Nor
     messages: req.messages.map(scrubMsg),
     paramsJson: scrubTextInto(req.paramsJson, hits),
     rawRequestJson: scrubTextInto(req.rawRequestJson, hits),
+    // The synthetic session key is a MACHINE identifier — Gemini's
+    // install-scoped `x-gemini-api-privileged-user-id`. It is fingerprinted
+    // rather than stored verbatim, for the same reason an earlier migration
+    // scrubbed `device_id`: a stable machine id that cleared every net (the
+    // entropy backstop only flags hex at 96+ chars) would otherwise sit in the
+    // clear.
+    //
+    // Fingerprinting keeps it useful: the hash is deterministic, so it still
+    // partitions one machine's traffic exactly as the raw value would, and
+    // grouping is unaffected.
+    //
+    // Note what is NOT done here: `clientSessionId` and `harnessIdentity` pass
+    // through untouched, by design. Those are conversation ids the client itself
+    // stated, and they are the load-bearing wire evidence the whole hierarchy
+    // joins on — scrubbing them would destroy the one signal that says "these
+    // requests are one conversation".
+    syntheticSessionKey: req.syntheticSessionKey
+      ? `fp:${fingerprint(req.syntheticSessionKey)}`
+      : req.syntheticSessionKey,
   };
   return { value, hits: hits.toHits(), flagged: hits.flagged };
 }

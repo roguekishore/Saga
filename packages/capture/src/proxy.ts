@@ -1,5 +1,6 @@
 import type {
   Adapter,
+  Door,
   Logger,
   NormalizedEvent,
   NormalizedRequest,
@@ -9,13 +10,16 @@ import type {
 import { noopLogger } from '@saga/contracts';
 import { redactMessage, redactNormalizedRequest, scrubHeaders, scrubText } from '@saga/redact';
 import { AgentCorrelator } from './agents';
+import { classifyCallRole } from './call-role';
 import {
+  detectHarness,
   extractClientName,
   extractWorkspace,
   SessionCorrelator,
   systemFingerprint,
 } from './session';
 import { SseParser } from './sse';
+import { classifyTurn, TurnCorrelator } from './turns';
 import { ulid } from './ulid';
 
 /**
@@ -47,6 +51,19 @@ export interface ProxyOptions {
   host?: string;
   port: number;
   upstream: string;
+  /**
+   * Which front door this instance is. SAGA runs TWO instances feeding one
+   * store: door A upstream to CONDUIT (Claude Code + Codex), door B upstream to
+   * Google (Gemini, plain passthrough).
+   *
+   * Deliberately one upstream per instance rather than a per-request router:
+   * routing inside `handle` would put provider branching in the hot path, which
+   * the architecture forbids. Two instances keep both invariants untouched and
+   * cost only a second `Bun.serve`.
+   *
+   * Defaults to 'A' so existing single-door callers and tests are unaffected.
+   */
+  door?: Door;
   adapters: Adapter[];
   emit: (ev: NormalizedEvent) => void;
   logger?: Logger;
@@ -87,6 +104,14 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
   const captureMax = opts.captureMaxBodyBytes ?? 20 * 1024 * 1024;
   const correlator = new SessionCorrelator(() => ulid());
   const agentCorrelator = new AgentCorrelator(() => ulid());
+  const turnCorrelator = new TurnCorrelator(() => ulid());
+  const door: Door = opts.door ?? 'A';
+  /**
+   * Models seen per session, for the Sonnet-under-Opus subagent signal (Claude
+   * Code drops subagents to Sonnet by default). Bounded like the correlators'
+   * maps — one entry per session, never revisited once a conversation ends.
+   */
+  const sessionModels = new Map<string, string[]>();
   let active = 0;
 
   const emitSafe = (ev: NormalizedEvent): void => {
@@ -105,6 +130,24 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
       where,
       message: scrubText(String(err)).value.slice(0, 500),
     });
+  };
+
+  /**
+   * Run one classifier, and on a throw fall back to the stated-unknown value.
+   *
+   * Per-classifier rather than relying on the enclosing request-capture catch:
+   * that catch abandons the whole `request_started` emit, so one bad heuristic
+   * would cost the entire request row instead of a single label. A classifier
+   * failure is visible as a `capture_error` and the request is still recorded,
+   * honestly labeled as unknown.
+   */
+  const safeClassify = <T>(requestId: string, where: string, fallback: T, fn: () => T): T => {
+    try {
+      return fn();
+    } catch (err) {
+      captureError(requestId, where, err);
+      return fallback;
+    }
   };
 
   async function handle(req: Request): Promise<Response> {
@@ -131,6 +174,13 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
     // Identity keeps forwarded bytes byte-identical to what fetch yields —
     // no decompress/re-encode mismatch on the tee.
     fwdHeaders.set('accept-encoding', 'identity');
+    // The correlation id, FORWARDED UPSTREAM. Previously this was set only on
+    // the response back to the client, which left the CONDUIT seam inert: the
+    // contract has CONDUIT echo `x-saga-request-id` back on its emit so SAGA can
+    // join metrics and rewritten-out to the clean-in it already stored, and
+    // CONDUIT cannot echo an id it never receives. It stays on the response too,
+    // since clients may already rely on reading it there.
+    fwdHeaders.set('x-saga-request-id', requestId);
 
     // Aborting this fetch is only safe BEFORE the response body is tee()'d.
     // Ground truth (Bun 1.3.13, Windows x64): aborting the source of a live
@@ -233,6 +283,10 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
         systemFingerprint: fingerprint,
         ts: ts0,
         clientSessionId: red.value.clientSessionId ?? null,
+        // Gemini declares nothing session-scoped on the Vertex door, so SAGA
+        // synthesizes a key from the install-scoped id the adapter surfaces.
+        // Reported `inferred`, because an install is not a session.
+        syntheticKey: red.value.syntheticSessionKey ?? null,
       });
       const sessionId = session.sessionId;
       ctx.sessionId = sessionId;
@@ -248,6 +302,62 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
             : '',
         ts: ts0,
       });
+
+      // ---- hierarchy classification.
+      //
+      // Each classifier is wrapped INDIVIDUALLY, not just under the enclosing
+      // request-capture try: a bug in a classifier must cost one label, not the
+      // whole request record. The enclosing catch would swallow request_started
+      // entirely, losing the row this request is meant to produce.
+      const harness = safeClassify(requestId, 'detect-harness', 'unknown' as const, () =>
+        detectHarness({ endpoint: url.pathname, clientName, headers: redHeaders, door }),
+      );
+
+      const turnClass = safeClassify(
+        requestId,
+        'classify-turn',
+        {
+          kind: 'unknown' as const,
+          source: 'inferred' as const,
+          harnessTurnId: null,
+          evidence: [],
+        },
+        () =>
+          classifyTurn({
+            request: red.value,
+            headers: redHeaders,
+            adapterId: ctx.adapter.id,
+            door,
+          }),
+      );
+      const turnAssignment = safeClassify(requestId, 'assign-turn', null, () =>
+        turnCorrelator.assign({ sessionId, classification: turnClass, ts: ts0 }),
+      );
+
+      const models = sessionModels.get(sessionId) ?? [];
+      const callRole = safeClassify(
+        requestId,
+        'classify-call-role',
+        { role: 'unknown' as const, source: 'inferred' as const, evidence: [] },
+        () =>
+          classifyCallRole({
+            request: red.value,
+            headers: redHeaders,
+            adapterId: ctx.adapter.id,
+            door,
+            sessionModels: models,
+          }),
+      );
+      // Recorded AFTER classification, so a request is never compared against
+      // its own model when deciding "is this a cheaper model than the session's".
+      if (red.value.model && !models.includes(red.value.model)) {
+        models.push(red.value.model);
+        sessionModels.set(sessionId, models);
+        if (sessionModels.size > 500) {
+          const oldest = sessionModels.keys().next().value;
+          if (oldest) sessionModels.delete(oldest);
+        }
+      }
 
       ctx.observer = ctx.adapter.createObserver();
       emitSafe({
@@ -269,6 +379,29 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
         request: red.value,
         redaction: { hits: red.hits, flagged: red.flagged },
         agent,
+        door,
+        harness,
+        routingTier: red.value.routingTier ?? null,
+        turn: turnAssignment
+          ? {
+              turnId: turnAssignment.turnId,
+              seq: turnAssignment.seq,
+              kind: turnClass.kind,
+              source: turnClass.source,
+              harnessTurnId: turnClass.harnessTurnId,
+              opened: turnAssignment.opened,
+              partial: turnAssignment.partial,
+              evidence: turnClass.evidence,
+            }
+          : null,
+        callRole,
+        harnessIdentity: red.value.harnessIdentity ?? null,
+        injections: (red.value.injections ?? []).map((inj) => ({
+          type: inj.type,
+          location: inj.location ?? null,
+          source: 'saga-observed' as const,
+          detail: inj.detail ?? null,
+        })),
       });
       ctx.startedEmitted = true;
     } catch (err) {

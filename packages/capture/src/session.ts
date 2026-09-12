@@ -1,4 +1,4 @@
-import type { NormalizedRequest } from '@saga/contracts';
+import type { Door, Harness, NormalizedRequest } from '@saga/contracts';
 
 /**
  * How a session boundary was decided. Only two answers, and the UI must be
@@ -10,6 +10,47 @@ import type { NormalizedRequest } from '@saga/contracts';
  *   time. Labeled inferred everywhere it surfaces.
  */
 export type SessionIdSource = 'client-declared' | 'inferred';
+
+/**
+ * Which harness is speaking. Two independent signals, both present BEFORE any
+ * gateway rewrites anything: the client name / user-agent, and the endpoint.
+ *
+ * Endpoint is the stronger discriminator and is checked first — Codex arrives on
+ * `/v1/responses`, Claude Code on `/v1/messages`, Gemini on Vertex's
+ * colon-method `…:streamGenerateContent` path.
+ *
+ * On Gemini's user-agent: `GeminiCLI/{version}/{model}` is the documented
+ * strongest signal, built before the auth branch so Vertex traffic carries it;
+ * the VS Code form instead carries `proxy_client=geminicli`. Both are matched.
+ *
+ * On Codex's `originator: codex_cli_rs`: it confirms Codex when present but is
+ * only sent when non-default, so ABSENCE IS NOT EVIDENCE OF NOT-CODEX. It is
+ * never required here — requiring it would drop real traffic to passthrough.
+ */
+export function detectHarness(input: {
+  endpoint: string;
+  clientName: string | null;
+  headers: Record<string, string>;
+  door: Door;
+}): Harness {
+  const path = input.endpoint.split('?')[0] ?? '';
+  const ua = (input.clientName ?? '').toLowerCase();
+
+  if (path.includes(':streamGenerateContent') || path.includes(':generateContent')) {
+    return 'gemini-cli';
+  }
+  if (path.endsWith('/responses')) return 'codex';
+  if (path.endsWith('/v1/messages')) return 'claude-code';
+
+  if (ua.includes('geminicli') || 'x-goog-api-key' in input.headers) return 'gemini-cli';
+  if (input.headers.originator === 'codex_cli_rs' || ua.includes('codex')) return 'codex';
+  if (ua.includes('claude')) return 'claude-code';
+
+  // Door B is Gemini's door by construction, so unrecognized traffic there is
+  // far more likely Gemini than anything else. Door A serves two harnesses and
+  // therefore cannot be guessed from the door alone.
+  return input.door === 'B' ? 'gemini-cli' : 'unknown';
+}
 
 export interface SessionAssignment {
   sessionId: string;
@@ -53,6 +94,20 @@ export class SessionCorrelator {
     ts: number;
     /** Wire-stated session id, when the client sent one. */
     clientSessionId?: string | null;
+    /**
+     * A stable partition SAGA can key on when the client states no session at
+     * all — today, Gemini's install-scoped `x-gemini-api-privileged-user-id`.
+     *
+     * It is NOT a session id and must never be passed off as one: it identifies
+     * an installation, so every conversation from one machine shares it. Paired
+     * with the idle window below it approximates a session boundary, and that
+     * approximation is reported as `inferred`.
+     *
+     * SAGA is the only component positioned to do this at all: Gemini never
+     * passes through CONDUIT, and SAGA IS its reverse proxy. The finding that
+     * suggested CONDUIT inject the id is wrong for this architecture.
+     */
+    syntheticKey?: string | null;
   }): SessionAssignment {
     if (input.clientSessionId) {
       return {
@@ -62,9 +117,11 @@ export class SessionCorrelator {
       };
     }
 
-    const key = input.workspace
-      ? `${input.clientName ?? '?'}|ws:${input.workspace}`
-      : `${input.clientName ?? '?'}|fp:${input.systemFingerprint}`;
+    const key = input.syntheticKey
+      ? `${input.clientName ?? '?'}|syn:${input.syntheticKey}`
+      : input.workspace
+        ? `${input.clientName ?? '?'}|ws:${input.workspace}`
+        : `${input.clientName ?? '?'}|fp:${input.systemFingerprint}`;
     const cur = this.active.get(key);
     if (cur && input.ts - cur.lastTs <= this.idleMs) {
       cur.lastTs = input.ts;
