@@ -40,6 +40,13 @@ const SessionDetailPage = page(
   () => import('./pages/SessionDetailPage'),
   (m) => m.SessionDetailPage,
 );
+// WS-C. Registered here, not by C6, because every UI workstream would otherwise
+// contend for this file and AppShell. Both a top-level and a session-scoped route
+// exist so C6 never needs to edit main.tsx to get a session into the page.
+const HierarchyPage = page(
+  () => import('./pages/HierarchyPage'),
+  (m) => m.HierarchyPage,
+);
 const SearchPage = page(
   () => import('./pages/SearchPage'),
   (m) => m.SearchPage,
@@ -108,6 +115,8 @@ const router = createBrowserRouter([
           { path: '/requests/:id/context', element: <ContextBreakdownPage /> },
           { path: '/sessions', element: <SessionsPage /> },
           { path: '/sessions/:id', element: <SessionDetailPage /> },
+          { path: '/hierarchy', element: <HierarchyPage /> },
+          { path: '/sessions/:id/hierarchy', element: <HierarchyPage /> },
           { path: '/search', element: <SearchPage /> },
           { path: '/analytics', element: <AnalyticsPage /> },
           { path: '/storage', element: <StoragePage /> },

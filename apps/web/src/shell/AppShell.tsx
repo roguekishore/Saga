@@ -8,6 +8,7 @@ import {
   Database,
   FileClock,
   Layers,
+  ListTree,
   Moon,
   Radio,
   ScrollText,
@@ -43,6 +44,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
     group: 'Explore',
     items: [
       { to: '/sessions', label: 'Sessions', icon: Layers },
+      { to: '/hierarchy', label: 'Hierarchy', icon: ListTree },
       { to: '/search', label: 'Search', icon: Search },
       { to: '/analytics', label: 'Analytics', icon: BarChart3 },
       { to: '/storage', label: 'Storage', icon: Database },
