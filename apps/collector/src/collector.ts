@@ -25,6 +25,7 @@ import { createRingLogger, type RingLogger } from './logger';
 
 export interface CollectorConfig {
   host: string;
+  /** Door A: Claude Code + Codex, upstream to CONDUIT. */
   proxyPort: number;
   apiPort: number;
   upstream: string;
@@ -35,12 +36,32 @@ export interface CollectorConfig {
   version?: string;
   /** Built dashboard directory to serve at / (desktop shell + headless). */
   uiDir?: string;
+  /**
+   * Door B: Gemini, plain passthrough to Google. A SECOND proxy instance rather
+   * than per-request routing inside door A — routing in the hot path would mean
+   * provider branching in the capture layer, which the architecture forbids.
+   */
+  doorBEnabled?: boolean;
+  doorBPort?: number;
+  doorBUpstream?: string;
 }
 
+/**
+ * Hosts where the upstream IS the provider, so usage numbers read off the wire
+ * are `upstream-reported` rather than `gateway-computed`.
+ *
+ * `aiplatform.googleapis.com` is the Vertex door SAGA actually proxies for
+ * Gemini. Its absence was a real provenance bug in waiting: the list carried
+ * only `generativelanguage.googleapis.com` (the consumer Gemini API, which this
+ * deployment does not use), so door B's six lossless `usageMetadata` counters —
+ * the one feed whose numbers are exact — would have been labeled
+ * gateway-computed.
+ */
 export const DEFAULT_PROVIDER_HOSTS = [
   'api.anthropic.com',
   'api.openai.com',
   'generativelanguage.googleapis.com',
+  'aiplatform.googleapis.com',
 ];
 
 export function configFromEnv(
@@ -55,12 +76,22 @@ export function configFromEnv(
     upstream: env.SAGA_UPSTREAM ?? 'http://127.0.0.1:8000',
     dbPath: env.SAGA_DB ?? resolve('storage', 'saga.db'),
     queueCapacity: Number(env.SAGA_QUEUE_CAP ?? 2048),
+    // Door B is OPT-IN. Binding a second port by default would be a surprise on
+    // every existing install, and a door with no Gemini traffic behind it is just
+    // an extra open socket.
+    doorBEnabled: env.SAGA_DOOR_B === '1' || env.SAGA_DOOR_B === 'true',
+    // 8788 is the read API, so door B takes 8789.
+    doorBPort: Number(env.SAGA_DOOR_B_PORT ?? 8789),
+    doorBUpstream: env.SAGA_DOOR_B_UPSTREAM ?? 'https://aiplatform.googleapis.com',
   };
 }
 
 export interface CollectorHandle {
   config: CollectorConfig;
+  /** Door A — Claude Code + Codex, upstream CONDUIT. */
   proxy: ProxyHandle;
+  /** Door B — Gemini, upstream Google. Null unless enabled. */
+  doorB: ProxyHandle | null;
   api: ApiServerHandle;
   db: Driver;
   writer: StoreWriter;
@@ -75,7 +106,31 @@ export function startCollector(cfg: CollectorConfig, logger?: RingLogger): Colle
 
   if (cfg.dbPath !== ':memory:') mkdirSync(dirname(cfg.dbPath), { recursive: true });
   const db = openDatabase(cfg.dbPath);
-  runMigrations(db, MIGRATIONS);
+  try {
+    runMigrations(db, MIGRATIONS);
+  } catch (err) {
+    // WS-C replaced the migration history with a single fresh `init` because the
+    // pre-WS-C corpus is explicitly not wanted. The runner refuses to touch a
+    // database whose history diverges from the code, which is the correct and
+    // desired behavior — it protects the old file instead of corrupting it. What
+    // it does not do on its own is explain itself, so translate it here.
+    //
+    // Deliberately NOT deleting or renaming anything: destroying a 200MB capture
+    // corpus is the operator's call, never the process's.
+    const msg = String(err);
+    if (msg.includes('diverged')) {
+      log.log(
+        'error',
+        'store',
+        `migration history diverged from this build: ${msg}. ` +
+          `SAGA's schema was rebuilt for the observability hierarchy, and the database at ` +
+          `${cfg.dbPath} predates it. Nothing has been modified. Move ${cfg.dbPath} ` +
+          `(and its -wal/-shm siblings) aside, then start again — a fresh database will be created.`,
+      );
+    }
+    db.close();
+    throw err;
+  }
 
   const writer = new StoreWriter(db, log);
   const orphans = writer.reconcileInFlight();
@@ -85,21 +140,50 @@ export function startCollector(cfg: CollectorConfig, logger?: RingLogger): Colle
   const queue = new BoundedEventQueue(cfg.queueCapacity, log);
   queue.subscribe((ev) => writer.handleEvent(ev));
 
-  const upstreamHost = new URL(cfg.upstream).hostname;
   const providerHosts = cfg.providerHosts ?? DEFAULT_PROVIDER_HOSTS;
-  const usageSource = providerHosts.includes(upstreamHost)
-    ? 'upstream-reported'
-    : 'gateway-computed';
-  log.log('info', 'collector', `usage provenance for ${upstreamHost}: ${usageSource}`);
+
+  /**
+   * Provenance is PER DOOR, not per process.
+   *
+   * This used to be computed once and shared, which was correct while there was
+   * one upstream. With two doors it is wrong in both directions: door A ends at
+   * CONDUIT (a gateway, so `gateway-computed`) while door B ends at Google itself
+   * (the provider, so `upstream-reported`). One shared value would mislabel one of
+   * them, and the one at risk was door B — the only feed whose token counts are
+   * exact.
+   */
+  const usageSourceFor = (upstream: string): 'upstream-reported' | 'gateway-computed' => {
+    const host = new URL(upstream).hostname;
+    const source = providerHosts.includes(host) ? 'upstream-reported' : 'gateway-computed';
+    log.log('info', 'collector', `usage provenance for ${host}: ${source}`);
+    return source;
+  };
 
   const proxy = startProxy({
     host: cfg.host,
     port: cfg.proxyPort,
     upstream: cfg.upstream,
-    adapters: createAdapters({ usageSource }),
+    door: 'A',
+    adapters: createAdapters({ usageSource: usageSourceFor(cfg.upstream) }),
     emit: (ev) => queue.push(ev),
     logger: log,
   });
+
+  // Door B — Gemini, straight to Google. Opt-in, its own adapter chain (so it
+  // carries its own provenance), same queue and same single writer: two doors,
+  // one store.
+  const doorBUpstream = cfg.doorBUpstream ?? 'https://aiplatform.googleapis.com';
+  const doorB = cfg.doorBEnabled
+    ? startProxy({
+        host: cfg.host,
+        port: cfg.doorBPort ?? 8789,
+        upstream: doorBUpstream,
+        door: 'B',
+        adapters: createAdapters({ usageSource: usageSourceFor(doorBUpstream) }),
+        emit: (ev) => queue.push(ev),
+        logger: log,
+      })
+    : null;
 
   // Weekly cleanup; VACUUM after deletes (freelist pages hold ghost bodies).
   // Disabled for in-memory DBs (tests drive retention directly).
@@ -138,11 +222,17 @@ export function startCollector(cfg: CollectorConfig, logger?: RingLogger): Colle
     logger: log,
     logLines: (after, limit) => log.lines(after, limit),
     staticDir: uiDir,
+    // The CONDUIT ingest seam pushes onto the same queue the proxy feeds, rather
+    // than writing to SQLite — `writer` is the single writer, and enqueueing is
+    // what makes the seam's fire-and-forget guarantee free instead of something
+    // the handler has to arrange.
+    emit: (ev) => queue.push(ev),
   });
 
   return {
     config: cfg,
     proxy,
+    doorB,
     api,
     db,
     writer,
@@ -153,6 +243,7 @@ export function startCollector(cfg: CollectorConfig, logger?: RingLogger): Colle
       stopRetention();
       stopEnrichment();
       proxy.stop();
+      doorB?.stop();
       api.stop();
       queue.flushSync();
       if (readDb !== db) readDb.close();
