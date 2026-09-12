@@ -72,6 +72,18 @@ function seedRequest(writer: StoreWriter, id: string, ts: number, marker: string
       rawRequestJson: `{"marker":"${marker}","id":"${id}","pad":"${'x'.repeat(800)}"}`,
     },
     redaction: { hits: [], flagged: false },
+    // WS-C hierarchy fields. Spelled out rather than defaulted because
+    // `z.default()` is input-optional but OUTPUT-required, which is the same
+    // reason `sessionIdSource` is explicit above: an emitter cannot quietly omit
+    // one and have it read as wire truth. These values are what the C3 stubs
+    // return today, so this fixture also pins the unclassified state.
+    door: 'A',
+    harness: 'claude-code',
+    routingTier: null,
+    turn: null,
+    callRole: null,
+    harnessIdentity: null,
+    injections: [],
   };
   const finished: ResponseFinished = {
     kind: 'response_finished',

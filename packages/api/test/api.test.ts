@@ -75,6 +75,17 @@ beforeAll(async () => {
         rawRequestJson: `{"model":"m","turn":${i}}`,
       },
       redaction: { hits: [{ kind: 'bearer-token', count: 1 }], flagged: false },
+      // WS-C hierarchy fields. Explicit rather than defaulted: `z.default()` is
+      // input-optional but OUTPUT-required, the same reason `sessionIdSource`
+      // above is spelled out — an emitter must not be able to omit one and have
+      // it read as wire truth.
+      door: 'A',
+      harness: 'claude-code',
+      routingTier: null,
+      turn: null,
+      callRole: null,
+      harnessIdentity: null,
+      injections: [],
     });
     writer.handleEvent({
       kind: 'first_token',

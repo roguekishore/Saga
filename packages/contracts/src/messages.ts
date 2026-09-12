@@ -78,5 +78,64 @@ export const NormalizedRequestSchema = z.object({
    * adapter sets it explicitly.
    */
   clientSessionId: z.string().nullable().optional(),
+
+  // ---- WS-C: the adapter's channel for things only it can read.
+  //
+  // These live on NormalizedRequest because the ADAPTER is what parses a
+  // provider's body and headers, and the capture layer must stay
+  // provider-agnostic — provider differences belong in adapters, never as
+  // branching in the capture path. All optional, so an adapter that predates
+  // them keeps type-checking and the six WS-C workstreams land independently.
+
+  /**
+   * Identity the harness declared, verbatim. Coverage is deliberately uneven:
+   * Codex fills all four from `client_metadata`, Claude Code fills `sessionId`
+   * only, Gemini-Vertex fills none.
+   *
+   * Codex trap: the `session-id` HEADER is the prompt-cache key, NOT the
+   * session. The session lives in the body at `client_metadata.session_id`.
+   */
+  harnessIdentity: z
+    .object({
+      sessionId: z.string().nullable().default(null),
+      threadId: z.string().nullable().default(null),
+      turnId: z.string().nullable().default(null),
+      parentTurnId: z.string().nullable().default(null),
+    })
+    .nullable()
+    .optional(),
+
+  /**
+   * Cost/latency tier, which BOTH feeds carry in their own dialect: Codex
+   * `service_tier` ∈ {priority, flex}; Gemini's `X-Vertex-AI-LLM-Request-Type` /
+   * `-Shared-Request-Type`. Identical token counts can cost and latch
+   * differently by tier, which is why the benchmarking thesis needs it.
+   */
+  routingTier: z.string().nullable().optional(),
+
+  /**
+   * Injections the adapter can see on the front door, before any gateway —
+   * Codex `user_instructions`/`environment_context`, Gemini `session_context`.
+   * These are `saga-observed`; CONDUIT's self-declared ones arrive separately
+   * over the ingest seam and are `conduit-declared`.
+   */
+  injections: z
+    .array(
+      z.object({
+        type: z.string(),
+        location: z.string().nullable().default(null),
+        detail: z.string().nullable().default(null),
+      }),
+    )
+    .optional(),
+
+  /**
+   * A stable partition to key a synthesized session on when the client declares
+   * none — Gemini's install-scoped `x-gemini-api-privileged-user-id`.
+   *
+   * NOT a session id, and never to be presented as one: it identifies an
+   * installation, so every conversation from one machine shares it.
+   */
+  syntheticSessionKey: z.string().nullable().optional(),
 });
 export type NormalizedRequest = z.infer<typeof NormalizedRequestSchema>;

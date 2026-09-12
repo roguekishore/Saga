@@ -8,25 +8,147 @@ import type { Migration } from './migrate';
  * `messages_fts` is contentless (`content=''`, `contentless_delete=1`): the
  * index holds tokens only — message bodies live once, Brotli-compressed, in
  * `messages.body`. Search returns rowids; snippets are computed after
- * decompressing just the hits. This deviates from the example commit message
- * in the brief (external-content FTS) because external content requires
- * plaintext bodies in a real column, which defeats compression; verified
- * available in SQLite 3.53.2 (ground truth 2026-09-03).
+ * decompressing just the hits. External-content FTS was rejected because it
+ * requires plaintext bodies in a real column, which defeats compression;
+ * contentless-delete verified available in SQLite 3.53.2 (ground truth
+ * 2026-09-03).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS ONE MIGRATION AND NOT FOUR
+ *
+ * Earlier revisions carried three: `init`, `client-declared-sessions` (which
+ * ALTERed sessions and re-stitched the corpus onto wire-stated session ids),
+ * and `rename-adapter-ids`. They are folded here into a single `init` because
+ * WS-C discards the existing database rather than migrating it — the stale
+ * corpus is explicitly not wanted, so a backfill that repairs it has nothing to
+ * repair. The final column set is what remains.
+ *
+ * This is deliberate, not a deletion of history. The runner refuses to proceed
+ * when code and database history diverge (`migrate.ts`), so pointing a collector
+ * at a pre-WS-C database fails loudly instead of corrupting it. The operator
+ * moves `storage/saga.db*` aside; nothing here deletes a database file.
+ *
+ * ---------------------------------------------------------------------------
+ * RESERVED COLUMNS
+ *
+ * Several columns below are created, indexed where they will be filtered, and
+ * left null: `project_id`, `forge_run_id`, and the metric fields CONDUIT will
+ * supply over the ingest seam. Reserving them costs nothing now and avoids a
+ * migration later — SQLite cannot `ALTER TABLE ... MODIFY COLUMN`, so every
+ * change that touches a column is create-copy-drop-rename. Forge in particular
+ * is a later layer ABOVE conversation; reserving its two columns means it folds
+ * in as display logic rather than a schema change.
+ *
+ * Do NOT design `project_id` or build Forge grouping against these. The
+ * contracts come separately.
  */
 export const MIGRATIONS: Migration[] = [
   {
     id: 1,
     name: 'init',
     statements: [
+      // ---------------------------------------------------------------- sessions
+      //
+      // A conversation. `session_id_source` is the honesty flag that outranks
+      // everything else here: `client-declared` means the client stated its own
+      // id on the wire (Claude Code does, on every `/v1/messages`), `inferred`
+      // means SAGA guessed from client + workspace/prompt shape and idle time.
+      // Wire evidence and a guess must never be presented alike.
+      //
+      // Session identity is NOT uniform across harnesses and this schema does
+      // not pretend otherwise: Codex declares session/thread/turn, Claude Code
+      // declares session only, and Gemini-Vertex declares NOTHING session-scoped
+      // (SAGA synthesizes a key for it, because SAGA is its reverse proxy and so
+      // the only component positioned to stamp one).
       `CREATE TABLE sessions (
         session_id TEXT PRIMARY KEY,
         started_at INTEGER NOT NULL,
         last_activity_at INTEGER NOT NULL,
         client_name TEXT,
-        workspace TEXT
+        workspace TEXT,
+        client_session_id TEXT,
+        session_id_source TEXT NOT NULL DEFAULT 'inferred',
+        -- Enrichment read from the client's own local transcript, keyed on
+        -- client_session_id. Null until an enrichment pass fills them.
+        title TEXT,
+        cwd TEXT,
+        git_branch TEXT,
+        -- Which capture door and which client. Decides the metrics feed.
+        door TEXT,
+        harness TEXT,
+        -- Harness-declared identity, verbatim off the wire.
+        harness_session_id TEXT,
+        -- Reserved. Contracts come separately; do not design against these.
+        project_id TEXT,
+        forge_run_id TEXT
       ) STRICT, WITHOUT ROWID`,
       `CREATE INDEX idx_sessions_activity ON sessions(last_activity_at DESC)`,
+      `CREATE INDEX idx_sessions_client_session ON sessions(client_session_id)
+         WHERE client_session_id IS NOT NULL`,
+      `CREATE INDEX idx_sessions_project ON sessions(project_id) WHERE project_id IS NOT NULL`,
+      `CREATE INDEX idx_sessions_forge_run ON sessions(forge_run_id) WHERE forge_run_id IS NOT NULL`,
 
+      // ---------------------------------------------------------------- turns
+      //
+      // One human-typed message and every request it triggered.
+      //
+      // This is the rung the hierarchy rests on: one human message is NOT one
+      // model call. It opens an agentic loop — model calls a tool, harness feeds
+      // the result back, repeat until the model answers with no tool call. ~4
+      // requests for a small task, 30+ for a large one, each re-shipping the
+      // whole growing conversation because the model remembers nothing.
+      //
+      // `boundary_source` is load-bearing and must not be collapsed away: Codex
+      // DECLARES turn boundaries (`client_metadata.turn_id`), so grouping is
+      // exact for that harness, while Claude Code and Gemini declare nothing and
+      // SAGA infers the boundary from payload structure. A heuristic result
+      // mislabeled as declared is worse than no grouping at all.
+      //
+      // `partial` marks a turn opened by a continuation with no open turn — SAGA
+      // restarted mid-loop, or capture began mid-conversation. An honest partial
+      // turn beats a fabricated complete one.
+      `CREATE TABLE turns (
+        turn_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(session_id),
+        seq INTEGER NOT NULL,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        boundary_source TEXT NOT NULL DEFAULT 'inferred',
+        harness_turn_id TEXT,
+        -- Reserved for subagent folding (Codex states parent_turn_id).
+        parent_turn_id TEXT,
+        partial INTEGER NOT NULL DEFAULT 0,
+        evidence_json TEXT NOT NULL DEFAULT '[]',
+        request_count INTEGER NOT NULL DEFAULT 0
+      ) STRICT, WITHOUT ROWID`,
+      `CREATE UNIQUE INDEX idx_turns_session_seq ON turns(session_id, seq)`,
+      `CREATE INDEX idx_turns_started ON turns(started_at DESC)`,
+      `CREATE INDEX idx_turns_harness_turn ON turns(harness_turn_id)
+         WHERE harness_turn_id IS NOT NULL`,
+
+      // ---------------------------------------------------------------- requests
+      //
+      // One harness→model round-trip.
+      //
+      // On provenance: the four original token columns each carry their own
+      // `_source` because the observer fills them independently off the wire,
+      // where any one can be absent. The seam-delivered set arrives as ONE
+      // atomic object from ONE feed, so `metrics_source` is a row-level column
+      // rather than six near-identical ones — and its enum encodes the two-feed
+      // rule directly in the schema.
+      //
+      // THE TWO-FEED RULE: metrics reach SAGA two ways. Kiro-routed traffic
+      // (Claude via Claude Code, Luna via Codex) arrives over the CONDUIT ingest
+      // seam on door A. Gemini NEVER passes through CONDUIT — SAGA parses
+      // Google's own response natively on door B. So `ingest_received_at` null
+      // means "pending" on door A and "will never arrive" on door B, and those
+      // must not be confused. `credits` is null on the entire Gemini feed by
+      // definition: Vertex bills GCP-side and nothing appears on the wire.
+      //
+      // `turn_id` has no FK on purpose, matching `agent_id`: turn assignment is
+      // a capture-time correlation that can legitimately lag or be revised, and
+      // a hard reference would make a late or reordered write fail rather than
+      // degrade.
       `CREATE TABLE requests (
         request_id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL REFERENCES sessions(session_id),
@@ -49,12 +171,50 @@ export const MIGRATIONS: Migration[] = [
         cache_read_tokens_source TEXT,
         cache_write_tokens INTEGER,
         cache_write_tokens_source TEXT,
+        -- Reasoning, metered by Kiro as its own line item; also reported by
+        -- Gemini as thoughtsTokenCount. Lets the reasoning portion of a tier
+        -- be priced independently.
+        thought_tokens INTEGER,
+        thought_tokens_source TEXT,
+        -- Provider-stated total. NOT a SAGA-computed sum, which would be an
+        -- estimate wearing a measured field.
+        total_tokens INTEGER,
+        total_tokens_source TEXT,
+        -- Kiro meteringEvent raw credit count. Null on the Gemini feed.
+        credits REAL,
+        -- Kiro returns this on EVERY response, so one turn yields N readings
+        -- that climb as the re-shipped conversation grows. Not a duplicate:
+        -- the loop made visible.
+        context_usage_percentage REAL,
+        -- 'conduit-seam' | 'gemini-native' | null
+        metrics_source TEXT,
+        ingest_received_at INTEGER,
         stop_reason TEXT,
         error_type TEXT,
         error_message TEXT,
         message_count INTEGER NOT NULL DEFAULT 0,
         tool_use_count INTEGER NOT NULL DEFAULT 0,
         agent_id TEXT,
+        turn_id TEXT,
+        -- 'main' | 'subagent' | 'utility' | 'unknown'. Codex DECLARES this
+        -- (x-openai-subagent); the others are fingerprinted, and Gemini's Vertex
+        -- wire carries nothing that would distinguish them — 'unknown' is a
+        -- legitimate answer there, not a failure.
+        call_role TEXT,
+        call_role_source TEXT,
+        call_role_evidence_json TEXT NOT NULL DEFAULT '[]',
+        door TEXT NOT NULL DEFAULT 'A',
+        harness TEXT,
+        -- Cost/latency tier BOTH feeds carry: Codex service_tier
+        -- {priority,flex}, Gemini's Vertex request-type header. Identical token
+        -- counts can cost and latch differently by tier.
+        routing_tier TEXT,
+        harness_session_id TEXT,
+        harness_thread_id TEXT,
+        harness_turn_id TEXT,
+        parent_turn_id TEXT,
+        -- Reserved.
+        forge_run_id TEXT,
         redaction_flagged INTEGER NOT NULL DEFAULT 0,
         redaction_hits_json TEXT NOT NULL DEFAULT '[]',
         frames INTEGER,
@@ -64,6 +224,10 @@ export const MIGRATIONS: Migration[] = [
         params_json TEXT,
         tools_json TEXT NOT NULL DEFAULT '[]',
         raw_request_msg_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+        -- The final Kiro-shaped payload CONDUIT reports sending. Stored as a
+        -- deduped, compressed message row like raw_request_msg_id, because the
+        -- diff (clean-in ⊖ rewritten-out) IS the injection SAGA renders.
+        rewritten_out_msg_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
         tier TEXT NOT NULL DEFAULT 'hot'
       ) STRICT, WITHOUT ROWID`,
       `CREATE INDEX idx_requests_ts ON requests(ts DESC)`,
@@ -75,7 +239,16 @@ export const MIGRATIONS: Migration[] = [
       // Retention's message GC anti-joins on this column; without the index
       // it is quadratic over a year corpus (measured: wedged for minutes).
       `CREATE INDEX idx_requests_raw_msg ON requests(raw_request_msg_id) WHERE raw_request_msg_id IS NOT NULL`,
+      `CREATE INDEX idx_requests_rewritten_msg ON requests(rewritten_out_msg_id) WHERE rewritten_out_msg_id IS NOT NULL`,
+      // The hierarchy read path: a turn's exchanges, in order, bounded by turn
+      // rather than scanning the session.
+      `CREATE INDEX idx_requests_turn ON requests(turn_id, ts) WHERE turn_id IS NOT NULL`,
+      `CREATE INDEX idx_requests_call_role ON requests(call_role) WHERE call_role IS NOT NULL`,
+      `CREATE INDEX idx_requests_door_ts ON requests(door, ts DESC)`,
+      `CREATE INDEX idx_requests_forge_run ON requests(forge_run_id) WHERE forge_run_id IS NOT NULL`,
 
+      // ---------------------------------------------------------------- stats_daily
+      //
       // Daily rollup for year-scale analytics. The W7 bench measured raw
       // GROUP BY over 912k requests at 550-700ms vs a 200ms target; the
       // measured answer is materialized day buckets, not a second engine.
@@ -96,11 +269,16 @@ export const MIGRATIONS: Migration[] = [
         PRIMARY KEY (day, model, adapter_id)
       ) STRICT, WITHOUT ROWID`,
 
+      // ---------------------------------------------------------------- messages
+      //
+      // `kind` carries 'rewritten_request' alongside 'raw_request' so CONDUIT's
+      // rewritten-out payload reuses dedup and compression instead of getting a
+      // parallel storage path.
       `CREATE TABLE messages (
         id INTEGER PRIMARY KEY,
         content_hash TEXT NOT NULL UNIQUE,
         role TEXT NOT NULL,
-        kind TEXT NOT NULL CHECK (kind IN ('message','raw_request')),
+        kind TEXT NOT NULL CHECK (kind IN ('message','raw_request','rewritten_request')),
         body BLOB NOT NULL,
         compressed INTEGER NOT NULL,
         raw_bytes INTEGER NOT NULL,
@@ -135,6 +313,43 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX idx_tool_uses_name ON tool_uses(name)`,
       `CREATE INDEX idx_tool_uses_id ON tool_uses(tool_use_id)`,
 
+      // ---------------------------------------------------------------- injections
+      //
+      // Context injections surfaced as tags — SAGA's original purpose, at the
+      // granularity of a single instruction.
+      //
+      // Two sources, and the difference is visible to the reader:
+      //  - 'saga-observed'    present on the front door before any gateway, so
+      //                       SAGA saw it directly (Codex user_instructions,
+      //                       Gemini session_context).
+      //  - 'conduit-declared' CONDUIT reports what it added. SAGA sits on the
+      //                       wrong side of that rewrite and cannot see it, so
+      //                       it displays what CONDUIT declares. This is the
+      //                       blind-spot fix.
+      `CREATE TABLE injections (
+        request_id TEXT NOT NULL REFERENCES requests(request_id) ON DELETE CASCADE,
+        seq INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        location TEXT,
+        source TEXT NOT NULL CHECK (source IN ('saga-observed','conduit-declared')),
+        detail TEXT,
+        PRIMARY KEY (request_id, seq)
+      ) STRICT, WITHOUT ROWID`,
+      `CREATE INDEX idx_injections_type ON injections(type)`,
+
+      // ---------------------------------------------------------------- reasoning_blocks
+      //
+      // Kiro carries a `modelId` per reasoning block, so a turn's reasoning can
+      // be attributed to the model that produced it. `signature_present` records
+      // whether the block was signed without storing the signature itself.
+      `CREATE TABLE reasoning_blocks (
+        request_id TEXT NOT NULL REFERENCES requests(request_id) ON DELETE CASCADE,
+        block_index INTEGER NOT NULL,
+        model_id TEXT,
+        signature_present INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (request_id, block_index)
+      ) STRICT, WITHOUT ROWID`,
+
       `CREATE TABLE agents (
         agent_id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL REFERENCES sessions(session_id),
@@ -150,136 +365,6 @@ export const MIGRATIONS: Migration[] = [
         k TEXT PRIMARY KEY,
         v TEXT NOT NULL
       ) STRICT, WITHOUT ROWID`,
-    ],
-  },
-
-  /**
-   * Sessions become wire-stated where the client states them, and the existing
-   * corpus is re-stitched to match.
-   *
-   * The bug being repaired: session identity was keyed on the system-prompt
-   * fingerprint, so one Claude Code conversation shattered into a session per
-   * model and per subagent (measured 2026-09-04: one conversation split 7 ways,
-   * another 4), while two conversations in different projects could MERGE
-   * whenever their prompt heads collided — `client_name` was 'cli' for both and
-   * `workspace` was null on 27 of 28 rows. Agent correlation was collateral
-   * damage: fingerprint had already been spent on the session, so every session
-   * held exactly one agent (30 agents, all labeled 'main', zero parent edges).
-   *
-   * The fix is a swap, not a rewrite: `metadata.user_id.session_id` — present
-   * on every Claude Code `/v1/messages` call and already captured in
-   * `params_json` — bounds the session, and the fingerprint goes back to its
-   * real job of separating agents INSIDE one.
-   *
-   * The backfill is driven off `requests`, not off old `sessions` rows, because
-   * the old key erred in both directions: some old sessions must split, not
-   * merely merge. Statement order is load-bearing under immediate FK
-   * enforcement — new parents exist, then children move, then empty parents go.
-   */
-  {
-    id: 2,
-    name: 'client-declared-sessions',
-    statements: [
-      `ALTER TABLE sessions ADD COLUMN client_session_id TEXT`,
-      `ALTER TABLE sessions ADD COLUMN session_id_source TEXT NOT NULL DEFAULT 'inferred'`,
-      // Enrichment read from the client's own local transcript, keyed on
-      // client_session_id. Null until an enrichment pass fills them.
-      `ALTER TABLE sessions ADD COLUMN title TEXT`,
-      `ALTER TABLE sessions ADD COLUMN cwd TEXT`,
-      `ALTER TABLE sessions ADD COLUMN git_branch TEXT`,
-      `CREATE INDEX idx_sessions_client_session ON sessions(client_session_id)
-         WHERE client_session_id IS NOT NULL`,
-
-      // One row per request that carries a stated session id, with the old and
-      // new session ids side by side. Temp so it vanishes with the connection.
-      `CREATE TEMP TABLE _remap AS
-         SELECT r.request_id AS request_id,
-                r.session_id AS old_session_id,
-                json_extract(json_extract(r.params_json, '$.metadata.user_id'), '$.session_id') AS cc,
-                'ses_' || json_extract(json_extract(r.params_json, '$.metadata.user_id'), '$.session_id') AS new_session_id
-           FROM requests r
-          WHERE json_extract(json_extract(r.params_json, '$.metadata.user_id'), '$.session_id') IS NOT NULL`,
-
-      // Carry client_name/workspace over from the old session of the EARLIEST
-      // request in each new session, rather than inventing values.
-      `INSERT INTO sessions (session_id, started_at, last_activity_at, client_name, workspace,
-                             client_session_id, session_id_source)
-         SELECT m.new_session_id,
-                MIN(r.ts), MAX(r.ts),
-                (SELECT s2.client_name FROM _remap m2
-                   JOIN requests r2 ON r2.request_id = m2.request_id
-                   JOIN sessions s2 ON s2.session_id = m2.old_session_id
-                  WHERE m2.new_session_id = m.new_session_id
-                  ORDER BY r2.ts LIMIT 1),
-                (SELECT s2.workspace FROM _remap m2
-                   JOIN requests r2 ON r2.request_id = m2.request_id
-                   JOIN sessions s2 ON s2.session_id = m2.old_session_id
-                  WHERE m2.new_session_id = m.new_session_id
-                  ORDER BY r2.ts LIMIT 1),
-                m.cc, 'client-declared'
-           FROM _remap m JOIN requests r ON r.request_id = m.request_id
-          GROUP BY m.new_session_id
-         ON CONFLICT(session_id) DO NOTHING`,
-
-      `UPDATE requests
-          SET session_id = (SELECT new_session_id FROM _remap WHERE _remap.request_id = requests.request_id)
-        WHERE request_id IN (SELECT request_id FROM _remap)`,
-
-      // An agent follows its requests. `requests.agent_id` has no FK, so this
-      // is ordered by ts rather than relying on referential integrity.
-      `UPDATE agents
-          SET session_id = (SELECT r.session_id FROM requests r
-                             WHERE r.agent_id = agents.agent_id ORDER BY r.ts LIMIT 1)
-        WHERE EXISTS (SELECT 1 FROM requests r WHERE r.agent_id = agents.agent_id)`,
-
-      // Old inferred sessions that everything moved off of. Only ever empty
-      // ones, and only inferred: a client-declared row is never dropped here.
-      `DELETE FROM sessions
-        WHERE session_id_source = 'inferred'
-          AND NOT EXISTS (SELECT 1 FROM requests r WHERE r.session_id = sessions.session_id)
-          AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.session_id = sessions.session_id)`,
-
-      // Every historical agent was labeled 'main' because each old session held
-      // exactly one. Now that they share a session, the earliest keeps 'main'
-      // and the rest get ordinals — a position, not an invented role name.
-      `UPDATE agents
-          SET label = 'agent-' || (SELECT COUNT(*) FROM agents a2
-                                    WHERE a2.session_id = agents.session_id
-                                      AND a2.first_seen_at < agents.first_seen_at)
-        WHERE label = 'main'
-          AND EXISTS (SELECT 1 FROM agents a3
-                       WHERE a3.session_id = agents.session_id
-                         AND a3.first_seen_at < agents.first_seen_at)`,
-
-      /**
-       * Scrub the historical device fingerprint. `device_id` is a stable
-       * machine identifier that cleared every net in the redact layer — the
-       * entropy backstop only flags hex at 96+ chars and this is 64 — so it
-       * stored in the clear. The live path now catches it by pattern; this
-       * catches what is already on disk.
-       *
-       * The `'' ||` is load-bearing: `json_set` returns a value carrying
-       * SQLite's JSON subtype, and nesting it directly would rewrite
-       * `metadata.user_id` from a JSON *string* into an object, so backfilled
-       * rows would no longer match the shape live capture writes (and `CAST(…
-       * AS TEXT)` does not clear the subtype). Concatenation does.
-       */
-      `UPDATE requests
-          SET params_json = json_set(params_json, '$.metadata.user_id',
-                ('' || json_set(json_extract(params_json, '$.metadata.user_id'),
-                                '$.device_id', '[REDACTED:device-fingerprint:historical]')))
-        WHERE json_extract(json_extract(params_json, '$.metadata.user_id'), '$.device_id') IS NOT NULL`,
-
-      `DROP TABLE _remap`,
-    ],
-  },
-
-  {
-    id: 3,
-    name: 'rename-adapter-ids',
-    statements: [
-      `UPDATE requests SET adapter_id = 'anthropic' WHERE adapter_id = 'kiro-anthropic'`,
-      `UPDATE requests SET adapter_id = 'openai' WHERE adapter_id = 'kiro-openai'`,
     ],
   },
 ];

@@ -84,6 +84,17 @@ runMigrations(db, MIGRATIONS);
         rawRequestJson: `{"bench":${i},"pad":"${'p'.repeat(400)}"}`,
       },
       redaction: { hits: [], flagged: false },
+      // WS-C hierarchy fields. Explicit because `z.default()` is input-optional
+      // but OUTPUT-required. Left unclassified (turn/callRole null) on purpose:
+      // this benchmark measures the WRITE PATH, and inventing turn structure here
+      // would measure a fiction rather than what capture actually produces today.
+      door: 'A',
+      harness: 'claude-code',
+      routingTier: null,
+      turn: null,
+      callRole: null,
+      harnessIdentity: null,
+      injections: [],
     });
     writer.handleEvent({
       kind: 'response_finished',

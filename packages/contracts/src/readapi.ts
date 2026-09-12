@@ -335,6 +335,153 @@ export const ToolCallRowSchema = z.object({
 });
 export type ToolCallRow = z.infer<typeof ToolCallRowSchema>;
 
+// ---------------------------------------------------------------- hierarchy (WS-C)
+
+/**
+ * The hierarchy read shapes. FROZEN by C0; C5 implements them and C6 renders
+ * them, so a divergence here is a divergence between two workstreams.
+ *
+ * The tree these serve:
+ *   project → conversation → human message → the requests it triggered → tags
+ *
+ * The point is not session browsing. It is to make context injection legible:
+ * for each thing the user typed, show the stream of back-and-forth it caused and
+ * exactly what was injected into each step.
+ */
+
+export const InjectionTagSchema = z.object({
+  /**
+   * Position within the request's tag list — the `seq` half of the store's
+   * `(request_id, seq)` primary key, so it is real identity rather than a render
+   * artifact. Exposed because a tag list otherwise has no stable key: two tags
+   * can share type, location, and source, and keying a list on array position is
+   * exactly what breaks when the list is reordered or filtered.
+   *
+   * Also carries a signal for free: SAGA-observed tags occupy low seqs and
+   * CONDUIT-declared ones a high fixed band, so seq order groups them by origin.
+   */
+  seq: z.number().int().nonnegative(),
+  type: z.string(),
+  location: z.string().nullable(),
+  /**
+   * `saga-observed` — SAGA saw it on the front door before any gateway.
+   * `conduit-declared` — CONDUIT reported adding it; SAGA cannot see the
+   * rewrite itself, so it displays what CONDUIT declares.
+   */
+  source: z.enum(['saga-observed', 'conduit-declared']),
+  detail: z.string().nullable(),
+});
+export type InjectionTag = z.infer<typeof InjectionTagSchema>;
+
+/**
+ * One harness→model round-trip. Renders as `[<harness> → <model>]` plus what
+ * the model replied with, with its injection tags beneath.
+ *
+ * Caveat for the renderer: the request→response cadence SAGA captures over HTTP
+ * is reliable, and must NOT be conflated with the gateway's alternation padding.
+ * Padding distorts how history is represented INSIDE a request; it does not
+ * touch the real pairing. Turn labeling stays clean even when in-request history
+ * is polluted.
+ */
+export const ExchangeSchema = z.object({
+  requestId: z.string(),
+  ts: z.number(),
+  seqInTurn: z.number().int().nonnegative(),
+  door: z.enum(['A', 'B']),
+  harness: z.enum(['claude-code', 'codex', 'gemini-cli', 'unknown']),
+  model: z.string().nullable(),
+  callRole: z.enum(['main', 'subagent', 'utility', 'unknown']),
+  callRoleSource: z.enum(['harness-declared', 'inferred']),
+  /** Why the role was assigned. The difference between trust and check. */
+  callRoleEvidence: z.array(z.string()),
+  routingTier: z.string().nullable(),
+  status: RequestStatusSchema.nullable(),
+  latencyMs: z.number().nullable(),
+  ttftMs: z.number().nullable(),
+  usage: UsageSchema,
+  /** Null on the Gemini feed BY DESIGN — Vertex bills GCP-side. Never 0. */
+  credits: z.number().nullable(),
+  contextUsagePercentage: z.number().nullable(),
+  stopReason: z.string().nullable(),
+  /** Which feed supplied the metrics. Null when none has yet. */
+  metricsSource: z.enum(['conduit-seam', 'gemini-native']).nullable(),
+  /**
+   * Distinguishes three states a null metric can be in, which must never look
+   * alike: `pending` (Door A, seam payload not yet arrived — the normal state
+   * until CONDUIT ships), `not-applicable` (Gemini, will never have one), and
+   * `present`.
+   */
+  seamStatus: z.enum(['present', 'pending', 'not-applicable']),
+  /** What the model replied: assembled text or the tool call it made. */
+  replyPreview: z.string().nullable(),
+  toolCalls: z.array(z.object({ toolUseId: z.string(), name: z.string() })),
+  injections: z.array(InjectionTagSchema),
+});
+export type Exchange = z.infer<typeof ExchangeSchema>;
+
+/** One human instruction and the loop it started. */
+export const TurnSummarySchema = z.object({
+  turnId: z.string(),
+  sessionId: z.string(),
+  seq: z.number().int().nonnegative(),
+  startedAt: z.number(),
+  /**
+   * Wall clock of the LAST finished request in the turn — i.e. last observed
+   * activity, not a closing boundary. Null until one finishes.
+   *
+   * A turn cannot be known to be closed at capture time: nothing declares "that
+   * instruction is done", and the only real evidence is the next human turn
+   * arriving. So the store records what it can actually observe and leaves
+   * "is this turn still open?" to the read layer, which can compare against the
+   * session's latest turn and the clock. Naming it an end time would be a claim
+   * the wire does not support.
+   */
+  endedAt: z.number().nullable(),
+  /**
+   * `harness-declared` is wire truth (Codex states `turn_id`); `inferred` is
+   * SAGA deriving the boundary from payload structure. The UI must be able to
+   * tell a reader which, per the design system's dashed treatment.
+   */
+  boundarySource: z.enum(['harness-declared', 'inferred']),
+  harnessTurnId: z.string().nullable(),
+  /** True when capture began mid-loop, so the turn is genuinely incomplete. */
+  partial: z.boolean(),
+  evidence: z.array(z.string()),
+  /** Round-trips the instruction took. */
+  requestCount: z.number().int().nonnegative(),
+  /** Wall-clock, measured by SAGA itself — real today, before any metrics land. */
+  spanMs: z.number().nullable(),
+  inputTokens: AggUsageSchema,
+  outputTokens: AggUsageSchema,
+  /** Reasoning tokens, metered separately by Kiro. */
+  thoughtTokens: AggUsageSchema,
+  /** Null when no row in the turn carried one. Never coerced to 0. */
+  credits: z.number().nullable(),
+  /**
+   * Every reading, IN ORDER and UNAGGREGATED. One instruction yields N readings
+   * that climb as the re-shipped conversation grows — that is the agentic loop
+   * made visible, and averaging them destroys the only interesting thing about
+   * them. The count is the number of round-trips.
+   */
+  contextUsageReadings: z.array(z.number()),
+  callRoles: z.array(z.enum(['main', 'subagent', 'utility', 'unknown'])),
+  errors: z.number().int().nonnegative(),
+});
+export type TurnSummary = z.infer<typeof TurnSummarySchema>;
+
+export const TurnListSchema = z.object({
+  sessionId: z.string(),
+  items: z.array(TurnSummarySchema),
+  nextCursor: z.string().nullable(),
+});
+export type TurnList = z.infer<typeof TurnListSchema>;
+
+export const TurnDetailSchema = z.object({
+  turn: TurnSummarySchema,
+  exchanges: z.array(ExchangeSchema),
+});
+export type TurnDetail = z.infer<typeof TurnDetailSchema>;
+
 // ---------------------------------------------------------------- sql (P4)
 
 export const SqlRequestSchema = z.object({ sql: z.string().max(20_000) });
@@ -400,5 +547,18 @@ export const API_PATHS = {
   sql: '/api/sql',
   logs: '/api/logs',
   settings: '/api/settings',
+  /** WS-C: a session's turns, and one turn's exchanges. */
+  sessionTurns: (id: string) => `/api/sessions/${encodeURIComponent(id)}/turns`,
+  turnById: (id: string) => `/api/turns/${encodeURIComponent(id)}`,
+  /**
+   * WS-C: CONDUIT's fire-and-forget emit. Frozen by the seam contract, and
+   * deliberately OUTSIDE `/api` — which is why `server.ts` must match it before
+   * the static handler, or the SPA fallback answers CONDUIT with index.html and
+   * a 200.
+   *
+   * This is the first WRITE endpoint on a server with no auth; loopback binding
+   * is the only boundary.
+   */
+  ingestConduit: '/ingest/conduit',
   ws: '/ws',
 } as const;

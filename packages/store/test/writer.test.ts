@@ -42,6 +42,15 @@ function started(requestId: string, ts: number, msgs: NormalizedMessage[]): Requ
       rawRequestJson: JSON.stringify({ model: 'claude-sonnet-4', messages: msgs.length }),
     },
     redaction: { hits: [], flagged: false },
+    // WS-C hierarchy fields — see the note in retention.test.ts on why these are
+    // explicit rather than relying on the schema defaults.
+    door: 'A',
+    harness: 'claude-code',
+    routingTier: null,
+    turn: null,
+    callRole: null,
+    harnessIdentity: null,
+    injections: [],
   };
 }
 

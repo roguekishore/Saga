@@ -49,6 +49,16 @@ describe('OTel exporter', () => {
         rawRequestJson: '{}',
       },
       redaction: { hits: [], flagged: false },
+      // WS-C hierarchy fields. Explicit rather than defaulted: `z.default()` is
+      // input-optional but OUTPUT-required, so a hand-built event literal must
+      // state them — the same reason `sessionIdSource` is spelled out above.
+      door: 'A',
+      harness: 'claude-code',
+      routingTier: null,
+      turn: null,
+      callRole: null,
+      harnessIdentity: null,
+      injections: [],
     });
     otel.subscriber({
       kind: 'response_finished',
