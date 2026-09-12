@@ -23,9 +23,19 @@ packages/capture/src/{proxy,session,index}.ts
 packages/adapters/src/index.ts
 packages/api/src/server.ts
 apps/collector/src/collector.ts
+apps/web/src/main.tsx
+apps/web/src/shell/AppShell.tsx
 ```
 
 Plus **stub creation only** for every file in the C1–C6 ownership rows.
+
+You own the web route wiring for the same reason you own every other call site:
+adding a page means editing `main.tsx` and `AppShell.tsx`, and if C6 did that, the
+one file every future UI workstream touches would be contested. Register the
+hierarchy route pointing at C6's stub page, and add its nav entry. Follow the
+existing pattern exactly — every page is its own lazy chunk via the local `page()`
+helper, and each sits inside the pathless error boundary so a page crash renders
+the recovery surface instead of blanking the app.
 
 ## Three things the source contradicts in the handoff — verify, then fix
 

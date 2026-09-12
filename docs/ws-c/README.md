@@ -1,10 +1,9 @@
 # WS-C — SAGA observability hierarchy: workstream index
 
 *Written 2026-09-12. Splits `D:/PROJECTS/AI/HANDOFF-saga-build.md` into
-independently-assignable specs. Source documents, in precedence order when they
-disagree: `CONTRACT-conduit-saga-seam.md` (frozen seam) >
-`HANDOFF-saga-build.md` (scope) > `FORGE/DESIGN-saga-observability-hierarchy.md`
-(intent) > `FORGE/PLATFORM-FINDINGS.md` (mechanics).*
+independently-assignable specs. Source documents and their precedence are in the
+table below — read it before the specs, since the documents live outside this
+repo.*
 
 ## What WS-C is
 
@@ -18,6 +17,28 @@ project → conversation → human message → the requests it triggered → inj
 SAGA is a local-first reverse proxy (Bun/TypeScript) that tees AI traffic into
 SQLite with a React dashboard. Everything below builds on data SAGA already
 captures, except the metrics half of C4, which is plumbing-now / values-later.
+
+## Source documents — they live OUTSIDE this repo
+
+These specs sit in the SAGA repo; every document they cite sits one level up, in
+the ecosystem root. If your working directory is the SAGA repo, a relative path
+will not find them. Use these absolute paths:
+
+| Document | Path | What it settles |
+|---|---|---|
+| Seam contract | `D:/PROJECTS/AI/CONTRACT-conduit-saga-seam.md` | **Frozen.** The ingest interface. Outranks everything. |
+| Handoff | `D:/PROJECTS/AI/HANDOFF-saga-build.md` | Scope: steps 1–8, reserved columns, the two rules. |
+| Hierarchy design | `D:/PROJECTS/AI/FORGE/DESIGN-saga-observability-hierarchy.md` | Intent: the target tree, rung feasibility, the blind spot. |
+| Platform findings | `D:/PROJECTS/AI/FORGE/PLATFORM-FINDINGS.md` | Mechanics. §5 (what SAGA can see), §5a-ter (Kiro field schema), §5a-quinquies (the agentic loop). |
+| Codex wire detail | `D:/PROJECTS/AI/analysis/FINDINGS-codex.md` | Authoritative for C2. |
+| Gemini wire detail | `D:/PROJECTS/AI/analysis/FINDINGS-gemini.md` | Authoritative for C1. |
+| Workstream plan | `D:/PROJECTS/AI/PARALLEL-WORKSTREAMS.md` | Why WS-C exists and what gates Forge. |
+| Design system | `packages/ui/DESIGN.md` (in-repo) | Binding for C6. |
+
+**Precedence when they disagree:** seam contract > handoff > hierarchy design >
+platform findings. For a pure wire fact about Codex or Gemini, the FINDINGS doc for
+that harness outranks the spec you were handed — and if it contradicts your spec,
+report it rather than quietly following either one.
 
 ## The ordering rule
 
@@ -41,6 +62,14 @@ C0 is blocking because it freezes every seam the other six code against — the
 event schema, the DDL, the read-API shape, and the stub module signatures. Once
 C0 is merged, no two remaining workstreams write the same file.
 
+**CV precedes C0, not just C3.** The obvious reading is that CV only matters to
+C3's grouping design, so it could run in parallel. It cannot: if CV finds that
+Claude Code's utility calls do *not* carry the main session id, they need a
+fallback join, and recording that join honestly may need a column. C0 ships the
+one and only migration — the entire "reserve columns now" discipline exists to
+avoid a second one. So the cheap read-only probe lands first, while its answer is
+still free.
+
 ## Ownership matrix — exclusive write lists
 
 A workstream writes **only** the files in its row. Everything else it reads.
@@ -48,7 +77,7 @@ Any change needed outside your row is a message back, not an edit.
 
 | WS | Owns (exclusive write) |
 |---|---|
-| **C0** | `packages/contracts/src/{events,messages,readapi,index}.ts`, `packages/store/src/{migrations,writer}.ts`, `packages/capture/src/proxy.ts`, `packages/capture/src/index.ts`, `packages/adapters/src/index.ts`, `packages/api/src/server.ts`, `apps/collector/src/collector.ts`, plus **stub creation** of every file listed in C1–C6 rows |
+| **C0** | `packages/contracts/src/{events,messages,provenance,readapi,index}.ts`, `packages/store/src/{migrations,writer}.ts`, `packages/capture/src/{proxy,session,index}.ts`, `packages/adapters/src/index.ts`, `packages/api/src/server.ts`, `apps/collector/src/collector.ts`, `apps/web/src/main.tsx`, `apps/web/src/shell/AppShell.tsx`, plus **stub creation** of every file listed in C1–C6 rows |
 | **C1** | `packages/adapters/src/gemini.ts`, `packages/adapters/test/gemini.test.ts` |
 | **C2** | `packages/adapters/src/codex-responses.ts`, `packages/adapters/test/codex-responses.test.ts` |
 | **C3** | `packages/capture/src/{turns,call-role}.ts`, `packages/adapters/src/anthropic.ts`, `packages/capture/test/{turns,call-role}.test.ts` |
