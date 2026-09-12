@@ -143,11 +143,24 @@ with `call_role_source: 'harness-declared'`:
 | `subagent` | a *different* large prompt overlapping a main call in time |
 | `utility` | tiny prompt + no tools + small token budget + cheap model |
 
-One strong extra signal for Claude Code: **a Sonnet request under an
-otherwise-Opus session is a reliable subagent marker**, because Claude Code drops
-subagents to Sonnet by default (verified via Anthropic's issue tracker). That is
-what `sessionModels` is for in the frozen signature. CV's report says whether real
-rows bear it out — **if CV refuted it, do not use it**, and say so.
+**⚠️ CV ran, and it corrected both of these. Read `docs/ws-c/CV-findings.md`
+before you write a line of `call-role.ts`.** Two things above are wrong as
+written:
+
+- **"Tiny prompt" is the wrong half of the utility fingerprint.** Utility payloads
+  are LARGE (mean 217 KB) — a titling call ships the conversation it summarizes.
+  The discriminator that actually works is
+  `no tools + max_tokens ≤ 64 + message_count ≤ 3`.
+- **The naive Sonnet-under-Opus rule is refuted.** It would mislabel 278 of 395
+  Sonnet calls in real traffic, because the *utility* traffic is itself Sonnet
+  under Opus sessions. It survives only in its refined form: Sonnet under an
+  otherwise-Opus session **that carries tools and a real budget**. That is what
+  `sessionModels` is for. Label it `inferred` — it is a fingerprint, not a
+  declaration.
+
+The good news from CV: utility calls **do** carry the main conversation's
+`session_id` (279/279, zero exceptions), so they fold through the existing
+client-declared path with no fallback join and no extra column.
 
 Gemini's `call_role` is **not inferrable from the Vertex wire** at all. Return
 `'unknown'` rather than guessing. `'unknown'` is a legitimate, honest answer here
