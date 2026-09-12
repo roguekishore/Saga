@@ -63,7 +63,18 @@ beforeAll(async () => {
 afterAll(() => {
   collector.stop();
   replay.stop();
-  rmSync(dir, { recursive: true, force: true });
+  // Windows holds the sqlite file briefly after close, so removing the temp dir
+  // races and throws EBUSY. A throw here fails the suite on a cleanup step that
+  // is not what this gate asserts — every secret-absence assertion has already
+  // run against the real db + wal bytes by this point. Retry, then leave the
+  // directory to the OS rather than turning a tmpdir race into a red gate.
+  //
+  // Same treatment `retention.test.ts` already applies for the same reason.
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    // handle still held; the OS reclaims the temp dir
+  }
 });
 
 describe('P1 gate: a planted secret is provably absent from disk', () => {
