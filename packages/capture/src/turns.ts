@@ -1,4 +1,10 @@
-import type { ClaimSource, Door, NormalizedRequest, TurnBoundaryKind } from '@saga/contracts';
+import {
+  type ClaimSource,
+  classifyBlocks,
+  type Door,
+  type NormalizedRequest,
+  type TurnBoundaryKind,
+} from '@saga/contracts';
 
 /**
  * Turn grouping — the rung the whole hierarchy rests on.
@@ -68,8 +74,15 @@ export function classifyTurn(input: {
   headers: Record<string, string>;
   adapterId: string;
   door: Door;
+  /**
+   * The call's role, already classified. A `utility` call is one of Claude
+   * Code's own internal helpers (titling, compaction, a quota probe) — it is
+   * traffic ABOUT the conversation, never a human instruction in it, so it must
+   * never open a turn.
+   */
+  callRole?: 'main' | 'subagent' | 'utility' | 'unknown';
 }): TurnClassification {
-  const { request, adapterId } = input;
+  const { request, adapterId, callRole } = input;
   const injections = request.injections ?? [];
 
   // ---- Codex: harness-declared turn id ------------------------------------
@@ -145,11 +158,49 @@ export function classifyTurn(input: {
         evidence: ['final-message-tool-only'],
       };
     }
+
+    // A utility call is the harness talking about the conversation, not a human
+    // talking in it. Measured: Sonnet-5 titling calls each opened a turn of
+    // their own, so the session view grew a card the user never typed.
+    if (callRole === 'utility') {
+      return {
+        kind: 'tool_continuation',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: ['call-role-utility'],
+      };
+    }
+
+    // "Not a tool result" is NOT the same as "the human typed something", and
+    // treating them as equivalent is what filled the session view with cards
+    // nobody wrote. Claude Code splits its own injections into separate text
+    // blocks, so the honest test is whether ANY block of the final user message
+    // is unmarked human prose.
+    //
+    // Measured on the live corpus (session ses_6dfad479): 5 of 9 turns were
+    // opened by harness-only requests — the safety-grader prompt (a block
+    // opening `</transcript>` followed by grading instructions) and the
+    // auto-mode reminder. Both carry no human prose at all.
+    const ctxs = classifyBlocks(lastMsg.blocks, lastMsg.role);
+    const hasHumanProse = ctxs.some((c, i) => {
+      const b = lastMsg.blocks[i];
+      return c.kind === 'user-prose' && b?.type === 'text' && b.text.trim().length > 0;
+    });
+
+    if (!hasHumanProse) {
+      return {
+        kind: 'tool_continuation',
+        source: 'inferred',
+        harnessTurnId: null,
+        evidence: ['final-message-harness-only'],
+      };
+    }
+
     return {
       kind: 'human_turn',
       source: 'inferred',
       harnessTurnId: null,
-      evidence: ['final-message-has-non-tool-content'],
+      evidence: ['final-message-has-user-prose'],
     };
   }
 

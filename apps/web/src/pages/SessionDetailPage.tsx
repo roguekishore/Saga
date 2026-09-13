@@ -53,6 +53,7 @@ import {
   YAxis,
 } from 'recharts';
 import { MessageCard } from '../components/BlockView';
+import { TurnStream } from '../components/TurnStream';
 import { AXIS, themedTooltip } from '../components/charts';
 import { api } from '../lib/api';
 import { webglAvailable } from '../lib/webgl';
@@ -149,12 +150,22 @@ export function SessionDetailPage() {
         </span>
       </div>
 
-      <Tabs defaultValue="requests">
+      {/* `turns` leads and defaults: the unit a human recognises is "the thing I
+          asked for", not a round-trip. The flat request table stays one click
+          away — it is the right view for latency and status, and the wrong one
+          for reading a conversation. */}
+      <Tabs defaultValue="turns">
         <TabsList>
+          <TabsTrigger value="turns">Conversation</TabsTrigger>
           <TabsTrigger value="requests">Requests</TabsTrigger>
           <TabsTrigger value="replay">Replay</TabsTrigger>
           <TabsTrigger value="growth">Context growth</TabsTrigger>
         </TabsList>
+
+        {/* ---------------------------------------------------- turns tab */}
+        <TabsContent value="turns" className="pt-3">
+          <TurnStream sessionId={id} />
+        </TabsContent>
 
         {/* ------------------------------------------------- requests tab */}
         <TabsContent value="requests" className="pt-3">

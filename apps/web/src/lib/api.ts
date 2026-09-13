@@ -14,6 +14,8 @@ import {
   TokenSeriesSchema,
   ToolCallRowSchema,
   ToolStatSchema,
+  TurnDetailSchema,
+  TurnListSchema,
 } from '@saga/contracts';
 import { z } from 'zod';
 
@@ -77,4 +79,13 @@ export const api = {
     requestId?: string;
     limit?: number;
   }) => z.array(ToolCallRowSchema).parse(await get(API_PATHS.toolCalls, params)),
+  /**
+   * WS-C hierarchy. These two endpoints already carried the turn tree; nothing
+   * in the dashboard called them, which is why the session view showed a flat
+   * request list instead of "one human message and the loop it started".
+   */
+  sessionTurns: async (sessionId: string, params: { limit?: number; cursor?: string } = {}) =>
+    TurnListSchema.parse(await get(API_PATHS.sessionTurns(sessionId), params)),
+  turnDetail: async (turnId: string) =>
+    TurnDetailSchema.parse(await get(API_PATHS.turnById(turnId))),
 };

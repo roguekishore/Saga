@@ -60,6 +60,10 @@ beforeAll(() => {
       if (url.pathname === '/fail') {
         return Response.json({ error: { type: 'overloaded', message: 'nope' } }, { status: 529 });
       }
+      // The reachability probe a client sends to ask "is the gateway up".
+      if (url.pathname === '/api/hello') {
+        return Response.json({ status: 'ok' });
+      }
       return new Response('not found', { status: 404 });
     },
   });
@@ -181,6 +185,33 @@ describe('proxy end to end', () => {
     const fin = events.find((e) => e.kind === 'response_finished') as ResponseFinished;
     expect(fin.status).toBe('upstream_error');
     expect(fin.httpStatus).toBe(529);
+  });
+
+  test('a HEAD probe is forwarded but never becomes a request', async () => {
+    // Measured on the live corpus: 7 `HEAD /api/hello` reachability probes each
+    // minted a session of its own, so the session list grew an empty
+    // "conversation" every time a client checked whether the proxy was up. A
+    // HEAD carries no body in either direction, so there is no conversation in
+    // it to record.
+    events.length = 0;
+    const res = await fetch(`http://127.0.0.1:${proxy.port}/api/hello`, { method: 'HEAD' });
+    expect(res.status).toBe(200); // still forwarded — this is a proxy, not a filter
+
+    // A GET on the same path IS captured, which makes it a barrier: once its
+    // response_finished has landed, the pipeline has demonstrably flushed, so
+    // the absence of any /api/hello HEAD event below is a real absence and not
+    // a race against a pending emit.
+    await fetch(`http://127.0.0.1:${proxy.port}/api/hello`);
+    await waitFor(() => events.some((e) => e.kind === 'response_finished'));
+
+    const started = events.filter((e) => e.kind === 'request_started') as RequestStarted[];
+    expect(started).toHaveLength(1); // the GET only
+    // Every response_finished must belong to a request that was started, or the
+    // writer has no row to apply it to.
+    const startedIds = new Set(started.map((e) => e.requestId));
+    for (const e of events) {
+      if (e.kind === 'response_finished') expect(startedIds.has(e.requestId)).toBe(true);
+    }
   });
 
   test('unreachable upstream → 502 to client, upstream_error event, proxy alive', async () => {

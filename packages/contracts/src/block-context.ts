@@ -77,6 +77,23 @@ const TAG_MARKERS: Array<{ tag: string; kind: BlockContextKind }> = [
 ];
 
 /**
+ * CLOSING tags, matched at the start of a block.
+ *
+ * A harness envelope can be split so that a later block opens with the closing
+ * tag of an element that began in an earlier one. Measured on the live corpus:
+ * the safety-grader prompt arrives as a block starting `</transcript>` followed
+ * by grading instructions. `TAG_MARKERS` only ever checked OPENING tags, so the
+ * whole thing read as `user-prose` — the single loudest mislabel in the session
+ * view, because it was rendered as something the human had typed.
+ */
+const CLOSING_TAG_MARKERS: Array<{ tag: string; kind: BlockContextKind }> = [
+  { tag: '</transcript>', kind: 'harness' },
+  { tag: '</session>', kind: 'harness' },
+  { tag: '</system-reminder>', kind: 'system-reminder' },
+  { tag: '</local-command-stdout>', kind: 'command-output' },
+];
+
+/**
  * Injections that carry NO tag. Measured on the live corpus: several thousand-
  * to twenty-thousand-character blocks are plainly harness-authored yet arrive
  * as bare text, so a leading-tag check alone labels them "what the human
@@ -90,11 +107,33 @@ const TAG_MARKERS: Array<{ tag: string; kind: BlockContextKind }> = [
  */
 const UNTAGGED_INJECTIONS: Array<{ needle: string; kind: BlockContextKind }> = [
   { needle: 'Available agent types for the Agent tool:', kind: 'harness' },
+  // Mode reminders the client re-injects around a turn. Measured: an auto-mode
+  // block was being labelled "your input" and, because turn boundaries key off
+  // that label, opened a conversation card of its own.
+  { needle: 'While auto mode is active:', kind: 'harness' },
+  { needle: 'While plan mode is active', kind: 'harness' },
   { needle: 'changed on disk since you last read it', kind: 'harness' },
   { needle: 'The following skills are available for use with the Skill tool:', kind: 'harness' },
   { needle: 'Codebase and user instructions are shown below', kind: 'memory' },
   { needle: "The following is the user's CLAUDE.md configuration", kind: 'memory' },
 ];
+
+/**
+ * A tool call and its result, RE-SERIALIZED AS PROSE in a user-role block.
+ *
+ * Measured on the live corpus: a 31,888-character block opening `Called the Read
+ * tool with the following input: {...}` / `Result of calling the Read tool:`,
+ * labelled "your input" by the marker rules alone. It is the single worst
+ * mislabel this module can produce, because the block is both large and
+ * unmistakably machine-written — a reader scanning for what they typed finds a
+ * file dump attributed to them.
+ *
+ * Matched by SHAPE rather than a fixed needle: the tool name varies, so a
+ * substring cannot cover it. Anchored at the start so a human discussing the
+ * phrase mid-sentence is not caught.
+ */
+const FLATTENED_TOOL_CALL =
+  /^Called the [\w.-]{1,60} tool with the following input:|^Result of calling the [\w.-]{1,60} tool:/;
 
 /** Recalled-memory signals; only consulted INSIDE an injected envelope. */
 const MEMORY_MARKERS = ['# claudeMd', 'MEMORY.md', 'CLAUDE.md', "user's auto-memory"];
@@ -133,6 +172,10 @@ export function classifyBlock(block: ContentBlock, role: string): BlockContext {
     return mem
       ? { kind: 'memory', inferred: true, marker: mem }
       : { kind: 'system-prompt', inferred: false, marker: null };
+  }
+
+  for (const { tag, kind } of CLOSING_TAG_MARKERS) {
+    if (text.startsWith(tag)) return { kind, inferred: true, marker: tag };
   }
 
   for (const { tag, kind } of TAG_MARKERS) {
@@ -178,6 +221,13 @@ export function classifyBlock(block: ContentBlock, role: string): BlockContext {
     if (/^\{\s*"[^"\n]{1,80}"\s*:/.test(text)) {
       return { kind: 'harness', inferred: true, marker: 'serialized record (unparseable)' };
     }
+  }
+
+  // A flattened tool-call record. Checked before the untagged-injection needles
+  // because it is shape-matched and cannot false-positive on prose that merely
+  // mentions a tool.
+  if (FLATTENED_TOOL_CALL.test(text)) {
+    return { kind: 'tool-result', inferred: true, marker: 'flattened tool-call record' };
   }
 
   // Untagged injections: scan only the opening window. A needle appearing deep

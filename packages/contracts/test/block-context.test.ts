@@ -158,6 +158,29 @@ describe('block context: the prose fallback is always a guess', () => {
     expect(c).toEqual({ kind: 'user-prose', inferred: true, marker: null });
   });
 
+  test('a flattened tool-call record is not "your input"', () => {
+    // Measured on the live corpus: a 31,888-char block that the marker rules
+    // alone labelled user-prose. The tool name varies, so this is shape-matched.
+    const called = classifyBlock(
+      text('Called the Read tool with the following input: {"file_path":"/tmp/x.md"}'),
+      'user',
+    );
+    expect(called.kind).toBe('tool-result');
+    expect(called.inferred).toBe(true);
+    expect(called.marker).toBe('flattened tool-call record');
+
+    expect(classifyBlock(text('Result of calling the Bash tool:\n1 ok'), 'user').kind).toBe(
+      'tool-result',
+    );
+  });
+
+  test('prose merely mentioning a tool is still yours', () => {
+    // The rule is anchored, so discussing a tool mid-sentence stays user-prose.
+    expect(
+      classifyBlock(text('I called the Read tool earlier and it failed'), 'user').kind,
+    ).toBe('user-prose');
+  });
+
   test('classifyBlocks stays positionally parallel to its input', () => {
     // The real nine-block turn shape: injections wrapped around one typed line.
     const blocks = [

@@ -127,7 +127,7 @@ describe('classifyTurn — Claude Code (structural discriminator)', () => {
     expect(result.evidence).toContain('final-message-tool-only');
   });
 
-  test('final message has non-tool content → human_turn, inferred', () => {
+  test('final message carries human prose → human_turn, inferred', () => {
     const result = classifyTurn({
       request: req({ messages: [TEXT_MSG] }),
       headers: {},
@@ -138,7 +138,52 @@ describe('classifyTurn — Claude Code (structural discriminator)', () => {
     expect(result.kind).toBe('human_turn');
     expect(result.source).toBe('inferred');
     expect(result.harnessTurnId).toBeNull();
-    expect(result.evidence).toContain('final-message-has-non-tool-content');
+    // Renamed from 'final-message-has-non-tool-content': that older rule opened a
+    // turn for ANY non-tool-result content, which is the bug below.
+    expect(result.evidence).toContain('final-message-has-user-prose');
+  });
+
+  test('a harness-only final message does NOT open a turn', () => {
+    // Measured on the live corpus (ses_6dfad479): 5 of 9 turns were opened by
+    // requests carrying no human prose at all — the safety-grader prompt (a
+    // block opening `</transcript>` then grading instructions) and the auto-mode
+    // reminder. Each became a card in the session view that nobody typed.
+    const graderMsg = {
+      role: 'user' as const,
+      blocks: [
+        {
+          type: 'text' as const,
+          text: '</transcript>\n\nStage 1 does NOT apply user intent. Respond with <severity>N</severity> ONLY.',
+        },
+      ],
+      contextSource: 'user' as const,
+      contextSourceInferred: false,
+    };
+    const result = classifyTurn({
+      request: req({ messages: [graderMsg] }),
+      headers: {},
+      adapterId: 'anthropic',
+      door: 'A',
+    });
+
+    expect(result.kind).toBe('tool_continuation');
+    expect(result.evidence).toContain('final-message-harness-only');
+  });
+
+  test('a utility call never opens a turn', () => {
+    // Claude Code's own internal helpers (titling, compaction, quota probes) are
+    // traffic ABOUT the conversation, not a human instruction in it. Measured:
+    // Sonnet-5 utility calls each opened a turn of their own.
+    const result = classifyTurn({
+      request: req({ messages: [TEXT_MSG] }),
+      headers: {},
+      adapterId: 'anthropic',
+      door: 'A',
+      callRole: 'utility',
+    });
+
+    expect(result.kind).toBe('tool_continuation');
+    expect(result.evidence).toContain('call-role-utility');
   });
 
   test('compaction injection → tool_continuation, not a new turn', () => {

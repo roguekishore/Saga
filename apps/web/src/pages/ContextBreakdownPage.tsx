@@ -1,4 +1,10 @@
-import type { ContentBlock, NormalizedMessage, RequestDetail } from '@saga/contracts';
+import {
+  type BlockContextKind,
+  classifyBlocks,
+  type ContentBlock,
+  type NormalizedMessage,
+  type RequestDetail,
+} from '@saga/contracts';
 import {
   Badge,
   Card,
@@ -29,16 +35,48 @@ const Treemap = lazy(() => import('../components/ContextTreemap'));
  * and it is labeled as exactly that.
  */
 
-/** Segment identity uses the categorical slots — status hues stay reserved. */
+/**
+ * Segments are derived PER BLOCK, not per message.
+ *
+ * This page used to group by `message.contextSource`, whose vocabulary is
+ * positional (system / history / user / tool / assistant) and structurally
+ * cannot report `memory`: recalled instructions arrive as one text block INSIDE
+ * a message whose position makes it `system` or `history`. So the memory slot
+ * had a colour, a legend entry and a treemap key, and was mathematically
+ * guaranteed to read zero — measured on the live corpus: 892 stored messages,
+ * `context_source = 'memory'` on none of them, while per-block classification
+ * finds 76 memory blocks (marker `MEMORY.md`) filed under system (32), history
+ * (26) and user (18).
+ *
+ * `classifyBlock` already answers this correctly and is derived on read, so the
+ * fix is to ask it instead of the message-level field. Bucketed to keep the
+ * legend readable: ten block kinds collapse onto seven segments, and the two
+ * that matter for "why is this prompt large" — memory and injected context —
+ * each keep their own.
+ */
 const SEGMENT_VARS: Array<[segment: string, cssVar: string]> = [
-  ['system', '--saga-cat-1'],
-  ['history', '--saga-cat-6'],
-  ['user', '--saga-cat-4'],
-  ['tool', '--saga-cat-3'],
-  ['spec', '--saga-cat-5'],
-  ['memory', '--saga-cat-2'],
-  ['unknown', '--saga-ink-faint'],
+  ['system prompt', '--saga-cat-1'],
+  ['memory / instructions', '--saga-cat-2'],
+  ['tool results', '--saga-cat-3'],
+  ['your input', '--saga-cat-4'],
+  ['injected context', '--saga-cat-5'],
+  ['model output', '--saga-cat-6'],
+  ['other', '--saga-ink-faint'],
 ];
+
+/** Block kind → segment. Every kind is listed; nothing falls through silently. */
+const KIND_SEGMENT: Record<BlockContextKind, string> = {
+  'system-prompt': 'system prompt',
+  memory: 'memory / instructions',
+  'tool-result': 'tool results',
+  'user-prose': 'your input',
+  'system-reminder': 'injected context',
+  'command-echo': 'injected context',
+  'command-output': 'injected context',
+  harness: 'injected context',
+  'model-output': 'model output',
+  'non-text': 'other',
+};
 
 const SEGMENT_COLORS: Record<string, string> = Object.fromEntries(
   SEGMENT_VARS.map(([seg, v]) => [seg, `var(${v})`]),
@@ -89,35 +127,66 @@ export function ContextBreakdownPage() {
 }
 
 function Breakdown({ d }: { d: RequestDetail }) {
-  const rows = useMemo(() => {
-    const all = [
-      ...d.request.system.map((m) => ({ m, seg: m.contextSource })),
-      ...d.request.messages.map((m) => ({ m, seg: m.contextSource })),
-    ];
-    return all.map(({ m, seg }, i) => ({
-      idx: i,
-      segment: seg,
-      role: m.role,
-      chars: messageChars(m),
-      blocks: m.blocks.length,
-      label: `${i}. ${m.role}${seg !== m.role ? ` (${seg})` : ''}`,
-    }));
+  /**
+   * Every block of every message, classified. One pass feeds both views: the
+   * composition bar aggregates blocks by segment, and the treemap keeps one
+   * rectangle per message labelled by the segment that dominates its bytes.
+   */
+  const blocks = useMemo(() => {
+    const out: Array<{ msgIdx: number; role: string; segment: string; chars: number }> = [];
+    const messages = [...d.request.system, ...d.request.messages];
+    messages.forEach((m, msgIdx) => {
+      const ctxs = classifyBlocks(m.blocks, m.role);
+      m.blocks.forEach((b, j) => {
+        const kind = ctxs[j]?.kind;
+        out.push({
+          msgIdx,
+          role: m.role,
+          segment: kind ? (KIND_SEGMENT[kind] ?? 'other') : 'other',
+          chars: blockChars(b),
+        });
+      });
+    });
+    return out;
   }, [d]);
+
+  const rows = useMemo(() => {
+    const messages = [...d.request.system, ...d.request.messages];
+    return messages.map((m, i) => {
+      // Dominant segment by bytes: a message mixing your prose with an injected
+      // reminder is painted for whichever actually accounts for its size.
+      const mine = blocks.filter((b) => b.msgIdx === i);
+      const bySeg = new Map<string, number>();
+      for (const b of mine) bySeg.set(b.segment, (bySeg.get(b.segment) ?? 0) + b.chars);
+      const dominant = [...bySeg.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'other';
+      return {
+        idx: i,
+        segment: dominant,
+        role: m.role,
+        chars: messageChars(m),
+        blocks: m.blocks.length,
+        label: `${i}. ${m.role} (${dominant})`,
+      };
+    });
+  }, [d, blocks]);
 
   const bySegment = useMemo(() => {
     const map = new Map<string, { chars: number; count: number }>();
-    for (const r of rows) {
-      const cur = map.get(r.segment) ?? { chars: 0, count: 0 };
-      cur.chars += r.chars;
+    for (const b of blocks) {
+      const cur = map.get(b.segment) ?? { chars: 0, count: 0 };
+      cur.chars += b.chars;
       cur.count++;
-      map.set(r.segment, cur);
+      map.set(b.segment, cur);
     }
+    // A zero-char segment (an image block, say) still counts as present, but a
+    // segment with no blocks at all is simply absent rather than shown as 0 —
+    // an empty row that could never fill is what this page was doing before.
     const total = Math.max(
       1,
       [...map.values()].reduce((a, v) => a + v.chars, 0),
     );
     return { entries: [...map.entries()].sort((a, b) => b[1].chars - a[1].chars), total };
-  }, [rows]);
+  }, [blocks]);
 
   const estTokens = (chars: number): number => Math.ceil(chars / 4);
 

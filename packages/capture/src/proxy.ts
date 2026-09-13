@@ -229,181 +229,209 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
       sessionId: null,
       emittedToolBlocks: new Set(),
     };
+    // Forwarded like anything else, but NOT recorded: a bodyless method cannot
+    // carry a conversation. Measured on the live corpus: 7 `HEAD /api/hello`
+    // reachability probes (User-Agent Bun/1.4.1, no model, no messages) each
+    // minted a session of their own, so the session list grew a fresh empty
+    // "conversation" every time a client checked whether the proxy was up.
+    //
+    // HEAD ONLY, and the narrowness is deliberate. A HEAD carries no request
+    // body and, by definition, no response body either, so there is nothing a
+    // conversation could be made of. Every hello probe observed was a HEAD.
+    //
+    // GET is NOT excluded, even though a GET is never a conversation either:
+    // SAGA deliberately records catalog reads and error responses on routes it
+    // has never seen (`GET /v1/models` via the passthrough adapter, `GET /fail`
+    // as upstream_error), and packages/capture/test/proxy.test.ts pins both.
+    // Dropping GETs would trade a real capability for a cosmetic win.
+    //
+    // Forwarding is untouched — this only decides whether a row is written.
+    const capturable = req.method !== 'HEAD';
+    if (!capturable) {
+      log.log('debug', 'proxy', `not recorded (no conversation): ${req.method} ${path}`);
+    }
     try {
-      const rawHeaders: Record<string, string> = {};
-      req.headers.forEach((v, k) => {
-        rawHeaders[k.toLowerCase()] = v;
-      });
-      const redHeaders = scrubHeaders(rawHeaders).value;
+      if (capturable) {
+        const rawHeaders: Record<string, string> = {};
+        req.headers.forEach((v, k) => {
+          rawHeaders[k.toLowerCase()] = v;
+        });
+        const redHeaders = scrubHeaders(rawHeaders).value;
 
-      let parsedBody: unknown = null;
-      if (bodyBytes && bodyBytes.byteLength > 0) {
-        try {
-          parsedBody = JSON.parse(new TextDecoder().decode(bodyBytes));
-        } catch {
-          parsedBody = null;
-        }
-      }
-      const adapterCtx = { method: req.method, path, headers: redHeaders, body: parsedBody };
-      ctx.adapter =
-        opts.adapters.find((a) => {
+        let parsedBody: unknown = null;
+        if (bodyBytes && bodyBytes.byteLength > 0) {
           try {
-            return a.matches(adapterCtx);
+            parsedBody = JSON.parse(new TextDecoder().decode(bodyBytes));
           } catch {
-            return false;
+            parsedBody = null;
           }
-        }) ?? ctx.adapter;
-
-      let normalized: NormalizedRequest;
-      try {
-        normalized = ctx.adapter.normalizeRequest(adapterCtx);
-      } catch (err) {
-        captureError(requestId, `normalize:${ctx.adapter.id}`, err);
-        normalized = {
-          model: null,
-          stream: false,
-          system: [],
-          messages: [],
-          tools: [],
-          paramsJson: 'null',
-          rawRequestJson: 'null',
-        };
-      }
-      const red = redactNormalizedRequest(normalized);
-      const clientName = extractClientName(redHeaders);
-      const workspace = extractWorkspace(red.value);
-      const fingerprint = systemFingerprint(red.value);
-      // `clientSessionId` survives redaction by design: the adapter lifts it
-      // off the original body into a typed field, so scrubbing the params
-      // (which is what removes the sibling device fingerprint) cannot take the
-      // session boundary with it.
-      const session = correlator.assign({
-        clientName,
-        workspace,
-        systemFingerprint: fingerprint,
-        ts: ts0,
-        clientSessionId: red.value.clientSessionId ?? null,
-        // Gemini declares nothing session-scoped on the Vertex door, so SAGA
-        // synthesizes a key from the install-scoped id the adapter surfaces.
-        // Reported `inferred`, because an install is not a session.
-        syntheticKey: red.value.syntheticSessionKey ?? null,
-      });
-      const sessionId = session.sessionId;
-      ctx.sessionId = sessionId;
-
-      const firstSystemText = red.value.system[0]?.blocks.find((b) => b.type === 'text');
-      const agent = agentCorrelator.assign({
-        sessionId,
-        requestId,
-        systemFingerprint: fingerprint,
-        systemHead:
-          firstSystemText && firstSystemText.type === 'text'
-            ? firstSystemText.text.slice(0, 300)
-            : '',
-        ts: ts0,
-      });
-
-      // ---- hierarchy classification.
-      //
-      // Each classifier is wrapped INDIVIDUALLY, not just under the enclosing
-      // request-capture try: a bug in a classifier must cost one label, not the
-      // whole request record. The enclosing catch would swallow request_started
-      // entirely, losing the row this request is meant to produce.
-      const harness = safeClassify(requestId, 'detect-harness', 'unknown' as const, () =>
-        detectHarness({ endpoint: url.pathname, clientName, headers: redHeaders, door }),
-      );
-
-      const turnClass = safeClassify(
-        requestId,
-        'classify-turn',
-        {
-          kind: 'unknown' as const,
-          source: 'inferred' as const,
-          harnessTurnId: null,
-          evidence: [],
-        },
-        () =>
-          classifyTurn({
-            request: red.value,
-            headers: redHeaders,
-            adapterId: ctx.adapter.id,
-            door,
-          }),
-      );
-      const turnAssignment = safeClassify(requestId, 'assign-turn', null, () =>
-        turnCorrelator.assign({ sessionId, classification: turnClass, ts: ts0 }),
-      );
-
-      const models = sessionModels.get(sessionId) ?? [];
-      const callRole = safeClassify(
-        requestId,
-        'classify-call-role',
-        { role: 'unknown' as const, source: 'inferred' as const, evidence: [] },
-        () =>
-          classifyCallRole({
-            request: red.value,
-            headers: redHeaders,
-            adapterId: ctx.adapter.id,
-            door,
-            sessionModels: models,
-          }),
-      );
-      // Recorded AFTER classification, so a request is never compared against
-      // its own model when deciding "is this a cheaper model than the session's".
-      if (red.value.model && !models.includes(red.value.model)) {
-        models.push(red.value.model);
-        sessionModels.set(sessionId, models);
-        if (sessionModels.size > 500) {
-          const oldest = sessionModels.keys().next().value;
-          if (oldest) sessionModels.delete(oldest);
         }
-      }
-
-      ctx.observer = ctx.adapter.createObserver();
-      emitSafe({
-        kind: 'request_started',
-        requestId,
-        ts: ts0,
-        sessionId,
-        sessionIdSource: session.source,
-        clientSessionId: session.clientSessionId,
-        adapterId: ctx.adapter.id,
-        provider: ctx.adapter.provider,
-        endpoint: url.pathname,
-        method: req.method,
-        upstreamUrl: opts.upstream,
-        clientName,
-        workspace,
-        model: red.value.model,
-        stream: red.value.stream,
-        request: red.value,
-        redaction: { hits: red.hits, flagged: red.flagged },
-        agent,
-        door,
-        harness,
-        routingTier: red.value.routingTier ?? null,
-        turn: turnAssignment
-          ? {
-              turnId: turnAssignment.turnId,
-              seq: turnAssignment.seq,
-              kind: turnClass.kind,
-              source: turnClass.source,
-              harnessTurnId: turnClass.harnessTurnId,
-              opened: turnAssignment.opened,
-              partial: turnAssignment.partial,
-              evidence: turnClass.evidence,
+        const adapterCtx = { method: req.method, path, headers: redHeaders, body: parsedBody };
+        ctx.adapter =
+          opts.adapters.find((a) => {
+            try {
+              return a.matches(adapterCtx);
+            } catch {
+              return false;
             }
-          : null,
-        callRole,
-        harnessIdentity: red.value.harnessIdentity ?? null,
-        injections: (red.value.injections ?? []).map((inj) => ({
-          type: inj.type,
-          location: inj.location ?? null,
-          source: 'saga-observed' as const,
-          detail: inj.detail ?? null,
-        })),
-      });
-      ctx.startedEmitted = true;
+          }) ?? ctx.adapter;
+
+        let normalized: NormalizedRequest;
+        try {
+          normalized = ctx.adapter.normalizeRequest(adapterCtx);
+        } catch (err) {
+          captureError(requestId, `normalize:${ctx.adapter.id}`, err);
+          normalized = {
+            model: null,
+            stream: false,
+            system: [],
+            messages: [],
+            tools: [],
+            paramsJson: 'null',
+            rawRequestJson: 'null',
+          };
+        }
+        const red = redactNormalizedRequest(normalized);
+        const clientName = extractClientName(redHeaders);
+        const workspace = extractWorkspace(red.value);
+        const fingerprint = systemFingerprint(red.value);
+        // `clientSessionId` survives redaction by design: the adapter lifts it
+        // off the original body into a typed field, so scrubbing the params
+        // (which is what removes the sibling device fingerprint) cannot take the
+        // session boundary with it.
+        const session = correlator.assign({
+          clientName,
+          workspace,
+          systemFingerprint: fingerprint,
+          ts: ts0,
+          clientSessionId: red.value.clientSessionId ?? null,
+          // Gemini declares nothing session-scoped on the Vertex door, so SAGA
+          // synthesizes a key from the install-scoped id the adapter surfaces.
+          // Reported `inferred`, because an install is not a session.
+          syntheticKey: red.value.syntheticSessionKey ?? null,
+        });
+        const sessionId = session.sessionId;
+        ctx.sessionId = sessionId;
+
+        const firstSystemText = red.value.system[0]?.blocks.find((b) => b.type === 'text');
+        const agent = agentCorrelator.assign({
+          sessionId,
+          requestId,
+          systemFingerprint: fingerprint,
+          systemHead:
+            firstSystemText && firstSystemText.type === 'text'
+              ? firstSystemText.text.slice(0, 300)
+              : '',
+          ts: ts0,
+        });
+
+        // ---- hierarchy classification.
+        //
+        // Each classifier is wrapped INDIVIDUALLY, not just under the enclosing
+        // request-capture try: a bug in a classifier must cost one label, not the
+        // whole request record. The enclosing catch would swallow request_started
+        // entirely, losing the row this request is meant to produce.
+        const harness = safeClassify(requestId, 'detect-harness', 'unknown' as const, () =>
+          detectHarness({ endpoint: url.pathname, clientName, headers: redHeaders, door }),
+        );
+
+        // callRole is classified FIRST because the turn boundary depends on it:
+        // a `utility` call is one of the harness's own internal helpers and must
+        // never open a turn. Ordered the other way, classifyTurn would receive
+        // `undefined` and silently fall back to opening one.
+        const models = sessionModels.get(sessionId) ?? [];
+        const callRole = safeClassify(
+          requestId,
+          'classify-call-role',
+          { role: 'unknown' as const, source: 'inferred' as const, evidence: [] },
+          () =>
+            classifyCallRole({
+              request: red.value,
+              headers: redHeaders,
+              adapterId: ctx.adapter.id,
+              door,
+              sessionModels: models,
+            }),
+        );
+
+        const turnClass = safeClassify(
+          requestId,
+          'classify-turn',
+          {
+            kind: 'unknown' as const,
+            source: 'inferred' as const,
+            harnessTurnId: null,
+            evidence: [],
+          },
+          () =>
+            classifyTurn({
+              request: red.value,
+              headers: redHeaders,
+              adapterId: ctx.adapter.id,
+              door,
+              callRole: callRole.role,
+            }),
+        );
+        const turnAssignment = safeClassify(requestId, 'assign-turn', null, () =>
+          turnCorrelator.assign({ sessionId, classification: turnClass, ts: ts0 }),
+        );
+        // Recorded AFTER classification, so a request is never compared against
+        // its own model when deciding "is this a cheaper model than the session's".
+        if (red.value.model && !models.includes(red.value.model)) {
+          models.push(red.value.model);
+          sessionModels.set(sessionId, models);
+          if (sessionModels.size > 500) {
+            const oldest = sessionModels.keys().next().value;
+            if (oldest) sessionModels.delete(oldest);
+          }
+        }
+
+        ctx.observer = ctx.adapter.createObserver();
+        emitSafe({
+          kind: 'request_started',
+          requestId,
+          ts: ts0,
+          sessionId,
+          sessionIdSource: session.source,
+          clientSessionId: session.clientSessionId,
+          adapterId: ctx.adapter.id,
+          provider: ctx.adapter.provider,
+          endpoint: url.pathname,
+          method: req.method,
+          upstreamUrl: opts.upstream,
+          clientName,
+          workspace,
+          model: red.value.model,
+          stream: red.value.stream,
+          request: red.value,
+          redaction: { hits: red.hits, flagged: red.flagged },
+          agent,
+          door,
+          harness,
+          routingTier: red.value.routingTier ?? null,
+          turn: turnAssignment
+            ? {
+                turnId: turnAssignment.turnId,
+                seq: turnAssignment.seq,
+                kind: turnClass.kind,
+                source: turnClass.source,
+                harnessTurnId: turnClass.harnessTurnId,
+                opened: turnAssignment.opened,
+                partial: turnAssignment.partial,
+                evidence: turnClass.evidence,
+              }
+            : null,
+          callRole,
+          harnessIdentity: red.value.harnessIdentity ?? null,
+          injections: (red.value.injections ?? []).map((inj) => ({
+            type: inj.type,
+            location: inj.location ?? null,
+            source: 'saga-observed' as const,
+            detail: inj.detail ?? null,
+          })),
+        });
+        ctx.startedEmitted = true;
+      }
     } catch (err) {
       captureError(requestId, 'request-capture', err);
     }
@@ -445,6 +473,16 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
       return new Response(null, { status: res.status, headers: respHeaders });
     }
 
+    // Not recorded (see `capturable` above): hand the body straight back with no
+    // tee. This is the load-bearing half of the guard — `consumeCapture` ends by
+    // emitting `response_finished`, which without a `request_started` would be an
+    // orphan the writer has no row to apply. Skipping the tee also spares a
+    // probe the buffering it never needed.
+    if (!ctx.startedEmitted) {
+      active--;
+      return new Response(res.body, { status: res.status, headers: respHeaders });
+    }
+
     // ---- the tee: client branch returns NOW, capture branch reads later
     const [clientBranch, captureBranch] = res.body.tee();
     // From here on the client's abort must not reach the fetch (see above).
@@ -463,6 +501,10 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
     httpStatus: number | null,
     error: { type: string; message: string } | null,
   ): void {
+    // No `request_started` means there is no row to finish. `response_finished`
+    // alone would be an orphan: the writer has no request to update, and the
+    // session/agent rows this event assumes were never created.
+    if (!ctx.startedEmitted) return;
     try {
       const result = ctx.observer?.finalize(
         status === 'ok'
