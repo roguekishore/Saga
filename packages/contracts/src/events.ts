@@ -30,7 +30,7 @@ export type RequestStatus = z.infer<typeof RequestStatusSchema>;
  *
  * This distinction is not cosmetic: it decides where a row's metrics come from,
  * whether a credit figure can exist at all, and whether an absent seam payload
- * is "pending" or "never". See the two-feed rule in docs/ws-c/README.md.
+ * is "pending" or "never". See the two-feed rule in `D:/PROJECTS/AI/STATE.md`.
  */
 export const DoorSchema = z.enum(['A', 'B']);
 export type Door = z.infer<typeof DoorSchema>;
@@ -84,11 +84,16 @@ export type CallRole = z.infer<typeof CallRoleSchema>;
  * - `conduit-declared` — CONDUIT self-declares what it added, because the
  *   rewrite happens inside CONDUIT and is invisible to a front-door proxy.
  *   This is the blind-spot fix: SAGA displays what CONDUIT reports.
+ * - `kiro-inferred` — the Kiro backend composes the final prompt server-side,
+ *   AFTER CONDUIT's last byte. No party on this side of the wire can witness
+ *   it: SAGA is in front of CONDUIT, and CONDUIT's captured outbound payload
+ *   provably does not contain it. The row is inferred from the endpoint's
+ *   identity, never observed. See analysis/FINDINGS-kiro-backend-injection.md.
  */
 export const InjectionSchema = z.object({
   type: z.string(),
   location: z.string().nullable().default(null),
-  source: z.enum(['saga-observed', 'conduit-declared']),
+  source: z.enum(['saga-observed', 'conduit-declared', 'kiro-inferred']),
   /** Optional redacted detail (e.g. a marker's position). Never raw content. */
   detail: z.string().nullable().default(null),
 });

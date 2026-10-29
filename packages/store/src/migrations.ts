@@ -367,4 +367,50 @@ export const MIGRATIONS: Migration[] = [
       ) STRICT, WITHOUT ROWID`,
     ],
   },
+
+  // -------------------------------------------------------------------------
+  // A third injection source: the Kiro backend.
+  //
+  // `injections.source` was a two-value CHECK because two parties could witness
+  // an injection — SAGA on the front door, CONDUIT from inside its own rewrite.
+  // That model is incomplete. `runtime.{region}.kiro.dev/generateAssistantResponse`
+  // is not a model API; it is an agent service that composes the final prompt
+  // server-side, and it prepends its own ~4,100-token system prompt AFTER
+  // CONDUIT's last byte.
+  //
+  // Neither existing source can carry that. SAGA sits in front of CONDUIT, and
+  // CONDUIT's captured outbound payload provably does not contain it — the
+  // differential is in analysis/FINDINGS-kiro-backend-injection.md. So the row
+  // is neither observed nor declared: it is INFERRED from the endpoint's
+  // identity, which is why it gets its own source value rather than being
+  // smuggled in as `conduit-declared`.
+  //
+  // The ~4,100 tokens ARE inside the metered `input_tokens` Kiro reports (the
+  // observed floor is 4,158 on a 2-message request). So the figure is not
+  // missing — it is UNATTRIBUTED. Without this row a reader cannot tell that a
+  // fixed ~4,100 of every request's input is Kiro's prompt rather than theirs.
+  //
+  // CHECK constraints cannot be ALTERed, so this is create-copy-drop-rename.
+  // Cheap here: the table holds ~1.3k rows, not the corpus.
+  {
+    id: 2,
+    name: 'kiro-inferred-injection-source',
+    statements: [
+      `CREATE TABLE injections_new (
+        request_id TEXT NOT NULL REFERENCES requests(request_id) ON DELETE CASCADE,
+        seq INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        location TEXT,
+        source TEXT NOT NULL CHECK (source IN ('saga-observed','conduit-declared','kiro-inferred')),
+        detail TEXT,
+        PRIMARY KEY (request_id, seq)
+      ) STRICT, WITHOUT ROWID`,
+      `INSERT INTO injections_new (request_id, seq, type, location, source, detail)
+         SELECT request_id, seq, type, location, source, detail FROM injections`,
+      `DROP TABLE injections`,
+      `ALTER TABLE injections_new RENAME TO injections`,
+      // DROP TABLE took the index with it.
+      `CREATE INDEX idx_injections_type ON injections(type)`,
+    ],
+  },
 ];

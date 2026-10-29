@@ -23,8 +23,7 @@ import {
 /**
  * Codex `/v1/responses` (door A).
  *
- * Spec: `docs/ws-c/C2-codex-adapter.md`. Wire detail:
- * `D:/PROJECTS/AI/analysis/FINDINGS-codex.md` (authoritative, outranks spec).
+ * Wire detail: `D:/PROJECTS/AI/analysis/FINDINGS-codex.md` (authoritative).
  *
  * NOT the existing `openai.ts` adapter — that speaks `/v1/chat/completions`,
  * a different endpoint with a different body shape. Do not conflate them.

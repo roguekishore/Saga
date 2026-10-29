@@ -71,6 +71,12 @@ export interface ProxyOptions {
   tokenTickMs?: number;
   /** Cap on buffered non-SSE bodies for capture (forwarding is unaffected). */
   captureMaxBodyBytes?: number;
+  /**
+   * Per-session MAX(seq) read from the turns table before startup. Passed to
+   * TurnCorrelator.seed() so a process restart never mints a seq that collides
+   * with a row already stored in the database.
+   */
+  initialTurnSeqs?: Map<string, number>;
 }
 
 export interface ProxyHandle {
@@ -105,6 +111,7 @@ export function startProxy(opts: ProxyOptions): ProxyHandle {
   const correlator = new SessionCorrelator(() => ulid());
   const agentCorrelator = new AgentCorrelator(() => ulid());
   const turnCorrelator = new TurnCorrelator(() => ulid());
+  if (opts.initialTurnSeqs) turnCorrelator.seed(opts.initialTurnSeqs);
   const door: Door = opts.door ?? 'A';
   /**
    * Models seen per session, for the Sonnet-under-Opus subagent signal (Claude

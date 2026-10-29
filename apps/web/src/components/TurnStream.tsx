@@ -2,6 +2,7 @@ import {
   type BlockContext,
   classifyBlocks,
   type ContentBlock,
+  detectTurnKind,
   type Exchange,
   type NormalizedMessage,
   type TurnSummary,
@@ -23,7 +24,7 @@ import {
   WireTag,
 } from '@saga/ui';
 import { useQuery } from '@tanstack/react-query';
-import { Brain, ChevronRight, MessageSquare, Terminal, Wrench } from 'lucide-react';
+import { Archive, Brain, ChevronRight, MessageSquare, Terminal, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '../lib/api';
 import { BlockView } from './BlockView';
@@ -172,7 +173,12 @@ function humanProse(messages: NormalizedMessage[]): { text: string; harnessBlock
       if (ctxs[j]?.kind === 'user-prose' && b.type === 'text') mine.push(b.text);
       else harness++;
     });
-    return { text: mine.join('\n\n').trim(), harnessBlocks: harness };
+    // If this user message yielded prose, use it. Otherwise keep scanning
+    // backwards — in a mid-loop agentic turn the trailing user message is ALL
+    // tool results; the human's actual instruction lives in an earlier history
+    // message (context_source='history'). Returning early on "no prose" would
+    // skip that and show "No human prose" for every substantive agentic turn.
+    if (mine.length > 0) return { text: mine.join('\n\n').trim(), harnessBlocks: harness };
   }
   return { text: '', harnessBlocks: 0 };
 }
@@ -270,6 +276,76 @@ function ExchangeStream({ exchanges }: { exchanges: Exchange[] }) {
   return <div className="space-y-2.5">{rows}</div>;
 }
 
+// ---------------------------------------------------------------- compact card
+
+/**
+ * A /compact turn hogged the dashboard as 5-6 cards of harness noise. This
+ * collapses it to a single slim chip: what happened, how much it cost, and
+ * optionally the summary the model produced — one click away.
+ */
+function CompactTurnCard({ turn, index }: { turn: TurnSummary; index: number }) {
+  const [open, setOpen] = useState(false);
+
+  const detail = useQuery({
+    queryKey: ['turn-detail', turn.turnId],
+    queryFn: () => api.turnDetail(turn.turnId),
+    enabled: open,
+  });
+
+  // The summary lives in the last exchange's reply preview — the model's
+  // condensed output after all the tool-reading round-trips.
+  const summaryPreview =
+    detail.data?.exchanges.at(-1)?.replyPreview ?? null;
+
+  return (
+    <Card className="overflow-hidden opacity-70 transition-opacity duration-(--dur-1) hover:opacity-100">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2">
+        <span className="font-mono font-bold text-[11px] text-ink-faint">#{index + 1}</span>
+        <span className="flex items-center gap-1.5 text-[11.5px] font-medium text-ink-dim">
+          <Archive className="size-3.5 shrink-0 text-ink-faint" />
+          context compacted
+        </span>
+        {turn.boundarySource === 'harness-declared' ? (
+          <WireTag what="turn boundary" />
+        ) : (
+          <InferredTag what="turn boundary" />
+        )}
+
+        <span className="ml-auto flex flex-wrap items-center gap-3 font-mono text-[11px] tabular-nums text-ink-faint">
+          <span>{turn.requestCount} round-trip{turn.requestCount === 1 ? '' : 's'}</span>
+          {turn.spanMs != null ? <span>{fmtMs(turn.spanMs)}</span> : null}
+          <Tip content="Output tokens across all compaction round-trips.">
+            <span>{fmtTokens(turn.outputTokens.value)} out</span>
+          </Tip>
+        </span>
+
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex cursor-pointer items-center gap-1 text-[11px] text-ink-faint transition-colors duration-(--dur-1) hover:text-ink"
+        >
+          <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
+          {open ? 'hide summary' : 'show summary'}
+        </button>
+      </div>
+
+      {open ? (
+        <div className="border-t border-line/60 bg-canvas/30 px-3.5 py-3">
+          {detail.isLoading ? (
+            <Skeleton className="h-16" />
+          ) : summaryPreview ? (
+            <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-ink-dim">
+              {summaryPreview}
+            </pre>
+          ) : (
+            <p className="text-[12px] italic text-ink-faint">No summary captured.</p>
+          )}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
 // -------------------------------------------------------------------- one turn
 
 function TurnBlock({ turn, index }: { turn: TurnSummary; index: number }) {
@@ -291,6 +367,57 @@ function TurnBlock({ turn, index }: { turn: TurnSummary; index: number }) {
   });
 
   const prose = head.data ? humanProse(head.data.request.messages) : null;
+
+  // Detect /compact turns: all blocks are harness, the opening prompt matches.
+  // Done here (after head loads) so we can inspect the actual blocks rather than
+  // guessing from token counts alone.
+  const turnKind = head.data
+    ? (() => {
+        for (let i = head.data.request.messages.length - 1; i >= 0; i--) {
+          const m = head.data.request.messages[i];
+          if (m && m.role === 'user') {
+            const k = detectTurnKind(m.blocks);
+            if (k !== 'normal') return k;
+          }
+        }
+        return 'normal' as const;
+      })()
+    : 'normal';
+
+  // While we're still loading, render a normal skeleton. Once we know it's a
+  // compact turn, hand off to the slim card — no further state needed here.
+  if (turnKind === 'compact') {
+    return <CompactTurnCard turn={turn} index={index} />;
+  }
+
+  // Spurious boundary: head loaded, no prose found, single round-trip. This
+  // happens when the turn boundary heuristic fired on a harness-only block that
+  // a later needle update now classifies correctly. There's nothing to show the
+  // user — render a collapsed dim row rather than a misleading empty card.
+  const isSpurious =
+    head.data !== undefined &&
+    !head.isLoading &&
+    prose !== null &&
+    !prose.text &&
+    turn.requestCount === 1;
+
+  if (isSpurious) {
+    return (
+      <div className="flex items-center gap-2 px-1 py-0.5 opacity-40">
+        <span className="font-mono text-[10.5px] text-ink-faint">#{index + 1}</span>
+        <span className="text-[11px] italic text-ink-faint">harness-only round-trip</span>
+        <span className="ml-auto font-mono text-[10.5px] tabular-nums text-ink-faint">
+          {fmtTokens(turn.outputTokens.value)} out
+        </span>
+        <a
+          href={`/requests/${detail.data?.exchanges[0]?.requestId ?? ''}`}
+          className="font-mono text-[10.5px] text-ink-faint hover:text-ink"
+        >
+          inspect →
+        </a>
+      </div>
+    );
+  }
 
   return (
     <Card className="overflow-hidden">

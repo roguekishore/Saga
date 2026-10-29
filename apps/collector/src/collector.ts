@@ -137,6 +137,17 @@ export function startCollector(cfg: CollectorConfig, logger?: RingLogger): Colle
   if (orphans > 0)
     log.log('info', 'store', `marked ${orphans} orphaned request(s) capture_incomplete`);
 
+  // Seed turn correlators with MAX(seq) per session so a restart never mints
+  // a seq that collides with a row already in the turns table.
+  const turnSeqRows = db
+    .prepare('SELECT session_id, MAX(seq) AS max_seq FROM turns GROUP BY session_id')
+    .all() as Array<{ session_id: string; max_seq: number }>;
+  const initialTurnSeqs = new Map<string, number>(
+    turnSeqRows.map((r) => [r.session_id, r.max_seq]),
+  );
+  if (initialTurnSeqs.size > 0)
+    log.log('info', 'store', `seeded turn correlator with ${initialTurnSeqs.size} session(s)`);
+
   const queue = new BoundedEventQueue(cfg.queueCapacity, log);
   queue.subscribe((ev) => writer.handleEvent(ev));
 
@@ -167,6 +178,7 @@ export function startCollector(cfg: CollectorConfig, logger?: RingLogger): Colle
     adapters: createAdapters({ usageSource: usageSourceFor(cfg.upstream) }),
     emit: (ev) => queue.push(ev),
     logger: log,
+    initialTurnSeqs,
   });
 
   // Door B — Gemini, straight to Google. Opt-in, its own adapter chain (so it
@@ -182,6 +194,7 @@ export function startCollector(cfg: CollectorConfig, logger?: RingLogger): Colle
         adapters: createAdapters({ usageSource: usageSourceFor(doorBUpstream) }),
         emit: (ev) => queue.push(ev),
         logger: log,
+        initialTurnSeqs,
       })
     : null;
 

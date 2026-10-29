@@ -116,6 +116,19 @@ const UNTAGGED_INJECTIONS: Array<{ needle: string; kind: BlockContextKind }> = [
   { needle: 'The following skills are available for use with the Skill tool:', kind: 'harness' },
   { needle: 'Codebase and user instructions are shown below', kind: 'memory' },
   { needle: "The following is the user's CLAUDE.md configuration", kind: 'memory' },
+  // Safety guardrail block injected by the client in auto/agent mode. Arrives as
+  // a bare text block with no XML wrapper. Measured on the live corpus: every
+  // agentic turn carries this block, labelling it "what you typed" buries the
+  // actual instruction.
+  { needle: 'making sure you deny actions that should be blocked', kind: 'harness' },
+  { needle: 'Review the classification process and follow it carefully', kind: 'harness' },
+  // /compact command prompt. The client injects this as a plain text block asking
+  // the model to summarize the conversation — it is never something the human typed.
+  { needle: 'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.', kind: 'harness' },
+  { needle: 'Your task is to create a detailed summary of the conversation so far', kind: 'harness' },
+  // Context window pressure warning injected as a standalone block.
+  { needle: 'is approaching its context window limit', kind: 'system-reminder' },
+  { needle: 'context window is now critically full', kind: 'system-reminder' },
 ];
 
 /**
@@ -244,4 +257,36 @@ export function classifyBlock(block: ContentBlock, role: string): BlockContext {
 /** Classify every block of a message, positionally parallel to `blocks`. */
 export function classifyBlocks(blocks: ContentBlock[], role: string): BlockContext[] {
   return blocks.map((b) => classifyBlock(b, role));
+}
+
+/**
+ * Well-known turn kinds derived from the opening request's content.
+ *
+ * `'compact'`  — a /compact invocation: the client asked the model to summarise
+ *                the conversation so it can be replayed into a fresh context window.
+ *                The prompt is entirely harness-generated; nothing the human typed
+ *                is present, and the turn produces multiple round-trips whose only
+ *                interesting output is the final summary.
+ * `'normal'`   — everything else.
+ */
+export type TurnKind = 'compact' | 'normal';
+
+const COMPACT_NEEDLES = [
+  'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.',
+  'Your task is to create a detailed summary of the conversation so far',
+];
+
+/**
+ * Derive the turn kind from the blocks of the turn's opening user message.
+ * Call this with the same blocks you would pass to `classifyBlocks`.
+ */
+export function detectTurnKind(blocks: ContentBlock[]): TurnKind {
+  for (const block of blocks) {
+    if (block.type !== 'text') continue;
+    const window = block.text.trimStart().slice(0, 400);
+    for (const needle of COMPACT_NEEDLES) {
+      if (window.includes(needle)) return 'compact';
+    }
+  }
+  return 'normal';
 }

@@ -506,6 +506,17 @@ export class StoreWriter {
   private static readonly CONDUIT_INJECTION_SEQ_BASE = 10_000;
 
   /**
+   * Base seq for Kiro-backend-inferred injections.
+   *
+   * Above CONDUIT's band for the same reason CONDUIT's sits above SAGA's: seq
+   * order groups tags by origin for free, and the ordering matches the pipeline
+   * — SAGA sees the front door, CONDUIT rewrites, Kiro composes last. Fixed
+   * rather than computed, so a duplicate ingest rewrites the same primary key
+   * and `ON CONFLICT DO NOTHING` discards it.
+   */
+  private static readonly KIRO_INJECTION_SEQ_BASE = 20_000;
+
+  /**
    * The CONDUIT seam: real metrics + the rewritten-out payload, joined to the
    * clean-in row SAGA already stored.
    *
@@ -635,6 +646,29 @@ export class StoreWriter {
           null,
         );
       });
+
+      // The third writer. A ConduitIngest payload exists only for a request that
+      // went to Kiro, and that endpoint composes the final prompt server-side:
+      // it prepends its own agentic system prompt AFTER CONDUIT's last byte.
+      // Neither party can witness it, so this row is unconditional and inferred
+      // from the endpoint's identity rather than from anything on the wire.
+      //
+      // Only the system-prompt composition is recorded. The backend also injects
+      // thinking scaffolding, token counters and a tool-policy override, but those
+      // are conditional and not detectable per-request from this side — writing
+      // them unconditionally would be fabrication, not inference.
+      //
+      // Why this row matters: the ~4,100 tokens are already inside the metered
+      // `input_tokens` Kiro reports, so they are paid for but unattributed. This
+      // row is what lets a reader tell whose tokens they were.
+      this.stmts.insertInjection.run(
+        payload.request_id,
+        StoreWriter.KIRO_INJECTION_SEQ_BASE,
+        'kiro_system_prompt',
+        'systemPrompt',
+        'kiro-inferred',
+        'Kiro backend composes the prompt server-side; ~4,100 tokens, never on the wire CONDUIT sent. See FINDINGS-kiro-backend-injection.md',
+      );
     });
   }
 

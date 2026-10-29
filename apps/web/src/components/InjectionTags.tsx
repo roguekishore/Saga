@@ -1,11 +1,14 @@
 import type { InjectionTag } from '@saga/contracts';
 import { cn, Tip } from '@saga/ui';
-import { Eye, Radio } from 'lucide-react';
+import { Eye, Radio, ServerCog } from 'lucide-react';
 
 /**
  * InjectionTags — what was pushed into each exchange.
  *
  * Two sources, two epistemic statuses:
+ *   kiro-inferred   — the Kiro backend added it server-side, past CONDUIT's last
+ *                    byte. No witness on this side of the wire; inferred from the
+ *                    endpoint. Dotted border — one step weaker than declared.
  *   saga-observed  — SAGA saw it on the front door before any gateway.
  *                    Solid border. SAGA is the direct witness.
  *   conduit-declared — CONDUIT reported adding it; SAGA sits on the wrong side
@@ -46,6 +49,37 @@ function SourcePip({ source }: { source: InjectionTag['source'] }) {
             <circle cx="4" cy="4" r="3" />
           </svg>
           saga
+        </span>
+      </Tip>
+    );
+  }
+  if (source === 'kiro-inferred') {
+    return (
+      <Tip content="The Kiro backend added this server-side, after CONDUIT's last byte. Nobody on this side of the wire witnessed it — the row is inferred from the endpoint's identity, not observed. See FINDINGS-kiro-backend-injection.md.">
+        <span
+          role="img"
+          aria-label="kiro-inferred"
+          className={cn(
+            'inline-flex items-center gap-0.5',
+            // Dotted, not dashed: one step weaker than conduit-declared, which is
+            // at least a first-hand report from the party that did the rewrite.
+            'rounded border border-dotted border-warn/60',
+            'px-1 py-px text-[9.5px] font-medium leading-3.5 text-warn',
+          )}
+        >
+          {/* Hollow dotted ring = "no witness at all" */}
+          <svg viewBox="0 0 8 8" aria-hidden className="inline-block size-[7px] shrink-0">
+            <circle
+              cx="4"
+              cy="4"
+              r="2.5"
+              fill="none"
+              strokeWidth="1.4"
+              strokeDasharray="1 1.5"
+              className="stroke-warn"
+            />
+          </svg>
+          kiro
         </span>
       </Tip>
     );
@@ -133,11 +167,15 @@ function InjectionChip({ tag }: { tag: InjectionTag }) {
           'border px-1.5 py-px text-[10.5px] leading-4',
           tag.source === 'saga-observed'
             ? 'border-solid border-line-strong bg-raised text-ink-dim'
-            : 'border-dashed border-inferred/40 bg-transparent text-ink-faint',
+            : tag.source === 'kiro-inferred'
+              ? 'border-dotted border-warn/40 bg-transparent text-warn/90'
+              : 'border-dashed border-inferred/40 bg-transparent text-ink-faint',
         )}
       >
         {tag.source === 'saga-observed' ? (
           <Eye className="size-3 shrink-0 text-ink-faint" aria-hidden />
+        ) : tag.source === 'kiro-inferred' ? (
+          <ServerCog className="size-3 shrink-0 text-warn" aria-hidden />
         ) : (
           <Radio className="size-3 shrink-0 text-inferred" aria-hidden />
         )}

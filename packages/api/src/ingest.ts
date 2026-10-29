@@ -8,9 +8,8 @@ import { type RedactionHit, scrubValue } from '@saga/redact';
 
 /**
  * The CONDUIT → SAGA ingest seam.
- * Spec: `docs/ws-c/C4-conduit-ingest-seam.md`.
- * Contract: `D:/PROJECTS/AI/CONTRACT-conduit-saga-seam.md` (FROZEN — it outranks
- * both the spec and this comment).
+ * Contract: `D:/PROJECTS/AI/CONTRACT-conduit-saga-seam.md` (it outranks this
+ * comment; now at v2, which adds `context_tokens` and `token_accounting`).
  *
  * SAGA captures the clean-in request at its front door. Two things it cannot
  * see, and this seam supplies exactly those two:

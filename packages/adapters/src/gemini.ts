@@ -27,8 +27,8 @@ import {
  *   POST https://aiplatform.googleapis.com/v1beta1/publishers/google/models/{model}:streamGenerateContent?alt=sse
  *   x-goog-api-key: <Agent Platform key>
  *
- * Wire facts: FINDINGS-gemini.md §1.10 (authoritative, verified against SDK 1.30.0).
- * Spec:       docs/ws-c/C1-gemini-adapter.md
+ * Wire facts: `D:/PROJECTS/AI/analysis/FINDINGS-gemini.md` §1.10 (authoritative,
+ *             verified against SDK 1.30.0).
  *
  * Key differences from Anthropic/OpenAI:
  * - Model id lives in the URL, not the body.

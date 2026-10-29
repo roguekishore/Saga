@@ -19,6 +19,7 @@ client (Claude Code, curl, any AI client)
 
 ## Features
 
+- **Observability hierarchy** — `project → conversation → human turn → the requests it triggered → injection tags`, with `call_role` (main / subagent / utility) per request and two capture doors (CONDUIT-routed and Gemini/Vertex) feeding one store
 - **Session replay** — reconstruct any conversation turn by turn
 - **Request inspector** — full request/response detail, headers, SSE frames
 - **Agent correlation** — parent/child tool-call trees across multi-step agents

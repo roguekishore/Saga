@@ -300,6 +300,22 @@ export class TurnCorrelator {
     this.idleMs = idleMs;
   }
 
+  /**
+   * Seed the per-session seq counters from a DB snapshot so that a process
+   * restart never mints a seq that collides with a row already in `turns`.
+   *
+   * Must be called BEFORE the first `assign()` call; safe to call after
+   * construction and before the proxy starts serving.
+   *
+   * @param maxSeqBySession Map of session_id → MAX(seq) read from the DB.
+   */
+  seed(maxSeqBySession: Map<string, number>): void {
+    for (const [sessionId, maxSeq] of maxSeqBySession) {
+      const current = this.seqBySession.get(sessionId) ?? -1;
+      if (maxSeq > current) this.seqBySession.set(sessionId, maxSeq);
+    }
+  }
+
   assign(input: {
     sessionId: string;
     classification: TurnClassification;

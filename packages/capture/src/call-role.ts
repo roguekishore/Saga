@@ -38,9 +38,10 @@ export interface CallRoleClassification {
  *              one, WITH tools and a real budget
  *   main     — everything else
  *
- * Both fingerprints are as measured against real traffic (`docs/ws-c/CV-findings.md`,
- * 279 utility calls over 4 sessions), and both CORRECT what the spec originally
- * asserted. Do not "restore" either older rule:
+ * Both fingerprints are as measured against real traffic (279 utility calls over
+ * 4 sessions; the measurement is recorded under "Established measurements" in
+ * `D:/PROJECTS/AI/STATE.md`), and both CORRECT plausible-sounding rules that an
+ * earlier design asserted. Do not "restore" either older rule:
  *
  *  - "tiny prompt" is backwards. Utility payloads are LARGE — mean 217KB, because
  *    a titling call ships the conversation it has to summarize. Sizing on the

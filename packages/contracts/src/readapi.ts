@@ -367,8 +367,10 @@ export const InjectionTagSchema = z.object({
    * `saga-observed` — SAGA saw it on the front door before any gateway.
    * `conduit-declared` — CONDUIT reported adding it; SAGA cannot see the
    * rewrite itself, so it displays what CONDUIT declares.
+   * `kiro-inferred` — the Kiro backend added it server-side, past the last
+   * point either party can observe. Inferred from the endpoint, not witnessed.
    */
-  source: z.enum(['saga-observed', 'conduit-declared']),
+  source: z.enum(['saga-observed', 'conduit-declared', 'kiro-inferred']),
   detail: z.string().nullable(),
 });
 export type InjectionTag = z.infer<typeof InjectionTagSchema>;
